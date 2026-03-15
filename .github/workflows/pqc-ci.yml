@@ -79,7 +79,7 @@ jobs:
         run: meson compile -C build
 
       - name: Install
-        run: sudo env "PATH=$PATH" meson install -C build
+        run: sudo "$(which meson)" install -C build
 
       - name: Smoke test (PQC enabled)
         if: matrix.pqc == 'enabled'
@@ -107,24 +107,18 @@ jobs:
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install build tools
+      - name: Install build tools and OpenSSL
         run: |
           pip install meson ninja
-
-      - name: Install OpenSSL via vcpkg
-        run: |
           vcpkg install openssl:x64-windows
-          echo "OPENSSL_ROOT_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows" >> $env:GITHUB_ENV
 
       - name: Configure (PQC disabled)
+        shell: cmd
         run: |
-          $env:PKG_CONFIG_PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib\pkgconfig"
-          meson setup build `
-            -Dpqc=disabled `
-            -Dssl=openssl `
-            -Dcassert=true `
-            -Dextra_include_dirs="$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include" `
-            -Dextra_lib_dirs="$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
+          set "PKG_CONFIG_PATH=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\lib\pkgconfig"
+          set "INCLUDE=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\include;%INCLUDE%"
+          set "LIB=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\lib;%LIB%"
+          meson setup build -Dpqc=disabled -Dssl=openssl -Dcassert=true
 
       - name: Build
         run: meson compile -C build
