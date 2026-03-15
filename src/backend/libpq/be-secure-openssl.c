@@ -51,6 +51,16 @@
 #endif
 #include <openssl/x509v3.h>
 
+#ifdef USE_PQC
+/*
+ * OpenSSL 3.0+ provider API, needed for loading oqs-provider to support
+ * post-quantum key exchange and signature algorithms.
+ */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/provider.h>
+#endif
+#endif							/* USE_PQC */
+
 
 /* default init hook can be overridden by a shared library */
 static void default_openssl_tls_init(SSL_CTX *context, bool isServerStart);
@@ -83,6 +93,12 @@ static SSL_CTX *SSL_context = NULL;
 static bool SSL_initialized = false;
 static bool dummy_ssl_passwd_cb_called = false;
 static bool ssl_is_server_start;
+
+#ifdef USE_PQC
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+static OSSL_PROVIDER *oqs_provider = NULL;
+#endif
+#endif
 
 static int	ssl_protocol_version_to_openssl(int v);
 static const char *ssl_protocol_version_to_string(int v);
@@ -298,6 +314,47 @@ be_tls_init(bool isServerStart)
 		goto error;
 	if (!initialize_ecdh(context, isServerStart))
 		goto error;
+
+	/*
+	 * FortressQL: Load the OpenSSL oqs-provider for PQC support.
+	 *
+	 * OpenSSL 3.5+ includes native ML-KEM support, but earlier 3.x versions
+	 * require the oqs-provider from the Open Quantum Safe project to handle
+	 * PQC key exchange groups and signature algorithms.  We attempt to load
+	 * the oqs-provider whenever PQC mode is not 'off'.  If the provider is
+	 * already available (e.g., via openssl.cnf), OSSL_PROVIDER_load() will
+	 * return the existing handle.
+	 *
+	 * Failure to load the provider is not immediately fatal: OpenSSL 3.5+
+	 * may support the requested groups natively.  The subsequent
+	 * SSL_CTX_set1_groups_list() call will fail with a clear error if the
+	 * groups are genuinely unavailable.
+	 */
+#ifdef USE_PQC
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	if (ssl_pqc_mode != PQC_TLS_OFF && oqs_provider == NULL)
+	{
+		oqs_provider = OSSL_PROVIDER_load(NULL, "oqsprovider");
+		if (oqs_provider != NULL)
+		{
+			ereport(LOG,
+					(errmsg("FortressQL: loaded oqs-provider for PQC TLS support")));
+		}
+		else
+		{
+			/*
+			 * Not fatal - OpenSSL 3.5+ may have native PQC support.
+			 * Clear the OpenSSL error queue so the non-critical failure
+			 * does not confuse later error reporting.
+			 */
+			ERR_clear_error();
+			ereport(LOG,
+					(errmsg("FortressQL: oqs-provider not available, "
+							"relying on native OpenSSL PQC support")));
+		}
+	}
+#endif							/* OPENSSL_VERSION_NUMBER >= 0x30000000L */
+#endif							/* USE_PQC */
 
 	/*
 	 * FortressQL: Configure Post-Quantum Cryptography groups.

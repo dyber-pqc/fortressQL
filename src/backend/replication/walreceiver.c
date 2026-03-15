@@ -78,6 +78,10 @@
 #include "utils/ps_status.h"
 #include "utils/timestamp.h"
 
+#ifdef USE_PQC
+#include "crypto/pqc/pqc_wal_keys.h"
+#endif
+
 
 /*
  * GUC variables.  (Other variables that affect walreceiver are in xlog.c
@@ -1070,6 +1074,69 @@ XLogWalRcvClose(XLogRecPtr recptr, TimeLineID tli)
 				(errcode_for_file_access(),
 				 errmsg("could not close WAL segment %s: %m",
 						xlogfname)));
+
+#ifdef USE_PQC
+	/*
+	 * FortressQL: Verify the PQC signature of the received WAL segment.
+	 *
+	 * When wal_pqc_verify_on_receive is enabled and WAL PQC signing is
+	 * configured, verify the segment's .sig file after it has been fully
+	 * received, flushed, and closed.  A verification failure emits a
+	 * WARNING but does not prevent the segment from being replayed --
+	 * the operator can choose to treat verification failures as fatal
+	 * via a custom error handler or monitoring.
+	 */
+	if (wal_pqc_verify_on_receive && wal_pqc_key_path != NULL &&
+		wal_pqc_key_path[0] != '\0')
+	{
+		char		segpath[MAXPGPATH];
+
+		/* Build the full path to the WAL segment in pg_wal */
+		snprintf(segpath, MAXPGPATH, "pg_wal/%s", xlogfname);
+
+		/*
+		 * Ensure the signing keys are loaded so that the public key
+		 * is available for verification.  If already loaded this is
+		 * a no-op.
+		 */
+		PG_TRY();
+		{
+			pqc_wal_load_signing_keys(wal_pqc_key_path,
+									  wal_pqc_signing_algorithm_string ?
+									  wal_pqc_signing_algorithm_string :
+									  "ML-DSA-65");
+
+			if (!pqc_wal_verify_segment(segpath))
+			{
+				ereport(WARNING,
+						(errmsg("FortressQL: PQC signature verification failed for received WAL segment %s",
+								xlogfname),
+						 errhint("The WAL segment may have been tampered with during replication. "
+								 "Investigate the primary server and network path.")));
+			}
+			else
+			{
+				ereport(LOG,
+						(errmsg("FortressQL: PQC signature verified for WAL segment %s",
+								xlogfname)));
+			}
+		}
+		PG_CATCH();
+		{
+			/*
+			 * Do not let verification errors prevent WAL replay.
+			 * Log the failure and continue.
+			 */
+			EmitErrorReport();
+			FlushErrorState();
+
+			ereport(WARNING,
+					(errmsg("FortressQL: could not verify PQC signature for WAL segment %s",
+							xlogfname)));
+		}
+		PG_END_TRY();
+	}
+#endif							/* USE_PQC */
 
 	/*
 	 * Create .done file forcibly to prevent the streamed segment from being

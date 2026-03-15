@@ -1,34 +1,42 @@
 -- FortressQL PQC: Algorithm variants regression tests
 -- Tests all ML-KEM, ML-DSA, and SLH-DSA variants with key size verification
-
 CREATE EXTENSION pgcrypto_pqc;
-
 -- ============================================================
 -- ML-KEM Key Size Verification
 -- ============================================================
-
 -- ML-KEM-512 key sizes
 SELECT
     length(public_key) AS pk_len,
     length(secret_key) AS sk_len
 FROM pqc_kem_keygen('ML-KEM-512');
+ pk_len | sk_len
+--------+--------
+    800 |   1632
+(1 row)
 
 -- ML-KEM-768 key sizes
 SELECT
     length(public_key) AS pk_len,
     length(secret_key) AS sk_len
 FROM pqc_kem_keygen('ML-KEM-768');
+ pk_len | sk_len
+--------+--------
+   1184 |   2400
+(1 row)
 
 -- ML-KEM-1024 key sizes
 SELECT
     length(public_key) AS pk_len,
     length(secret_key) AS sk_len
 FROM pqc_kem_keygen('ML-KEM-1024');
+ pk_len | sk_len
+--------+--------
+   1568 |   3168
+(1 row)
 
 -- ============================================================
 -- ML-KEM Round-Trip Tests
 -- ============================================================
-
 -- ML-KEM-512 encapsulate/decapsulate round-trip
 DO $$
 DECLARE
@@ -46,7 +54,7 @@ BEGIN
         RAISE EXCEPTION 'ML-KEM-512 round-trip: FAIL';
     END IF;
 END $$;
-
+NOTICE:  ML-KEM-512 round-trip: PASS
 -- ML-KEM-768 encapsulate/decapsulate round-trip
 DO $$
 DECLARE
@@ -64,7 +72,7 @@ BEGIN
         RAISE EXCEPTION 'ML-KEM-768 round-trip: FAIL';
     END IF;
 END $$;
-
+NOTICE:  ML-KEM-768 round-trip: PASS
 -- ML-KEM-1024 encapsulate/decapsulate round-trip
 DO $$
 DECLARE
@@ -82,33 +90,43 @@ BEGIN
         RAISE EXCEPTION 'ML-KEM-1024 round-trip: FAIL';
     END IF;
 END $$;
-
+NOTICE:  ML-KEM-1024 round-trip: PASS
 -- ============================================================
 -- ML-DSA Key Size Verification
 -- ============================================================
-
 -- ML-DSA-44 key sizes
 SELECT
     length(public_key) AS pk_len,
     length(secret_key) AS sk_len
 FROM pqc_sig_keygen('ML-DSA-44');
+ pk_len | sk_len
+--------+--------
+   1312 |   2560
+(1 row)
 
 -- ML-DSA-65 key sizes
 SELECT
     length(public_key) AS pk_len,
     length(secret_key) AS sk_len
 FROM pqc_sig_keygen('ML-DSA-65');
+ pk_len | sk_len
+--------+--------
+   1952 |   4032
+(1 row)
 
 -- ML-DSA-87 key sizes
 SELECT
     length(public_key) AS pk_len,
     length(secret_key) AS sk_len
 FROM pqc_sig_keygen('ML-DSA-87');
+ pk_len | sk_len
+--------+--------
+   2592 |   4896
+(1 row)
 
 -- ============================================================
 -- ML-DSA Round-Trip Tests
 -- ============================================================
-
 -- ML-DSA-44 sign/verify round-trip
 DO $$
 DECLARE
@@ -127,7 +145,7 @@ BEGIN
         RAISE EXCEPTION 'ML-DSA-44 sign/verify: FAIL';
     END IF;
 END $$;
-
+NOTICE:  ML-DSA-44 sign/verify: PASS
 -- ML-DSA-65 sign/verify round-trip
 DO $$
 DECLARE
@@ -146,7 +164,7 @@ BEGIN
         RAISE EXCEPTION 'ML-DSA-65 sign/verify: FAIL';
     END IF;
 END $$;
-
+NOTICE:  ML-DSA-65 sign/verify: PASS
 -- ML-DSA-87 sign/verify round-trip
 DO $$
 DECLARE
@@ -165,11 +183,10 @@ BEGIN
         RAISE EXCEPTION 'ML-DSA-87 sign/verify: FAIL';
     END IF;
 END $$;
-
+NOTICE:  ML-DSA-87 sign/verify: PASS
 -- ============================================================
 -- SLH-DSA Variants (conditional - may not be available in all liboqs builds)
 -- ============================================================
-
 -- SLH-DSA-SHA2-128f: only test if available
 DO $$
 DECLARE
@@ -197,7 +214,8 @@ BEGIN
         RAISE EXCEPTION 'SLH-DSA-SHA2-128f sign/verify: FAIL';
     END IF;
 END $$;
-
+NOTICE:  SLH-DSA-SHA2-128f key sizes: pk=32, sk=64
+NOTICE:  SLH-DSA-SHA2-128f sign/verify: PASS
 -- SLH-DSA-SHAKE-256f: only test if available
 DO $$
 DECLARE
@@ -225,11 +243,11 @@ BEGIN
         RAISE EXCEPTION 'SLH-DSA-SHAKE-256f sign/verify: FAIL';
     END IF;
 END $$;
-
+NOTICE:  SLH-DSA-SHAKE-256f key sizes: pk=64, sk=128
+NOTICE:  SLH-DSA-SHAKE-256f sign/verify: PASS
 -- ============================================================
 -- Verify shared secret length is consistent across KEM variants
 -- ============================================================
-
 -- All ML-KEM variants produce 32-byte shared secrets
 DO $$
 DECLARE
@@ -260,15 +278,16 @@ BEGIN
         RAISE EXCEPTION 'ML-KEM-1024 shared secret length: FAIL (got %)', length(encap.shared_secret);
     END IF;
 END $$;
-
+NOTICE:  ML-KEM-512 shared secret length (32): PASS
+NOTICE:  ML-KEM-768 shared secret length (32): PASS
+NOTICE:  ML-KEM-1024 shared secret length (32): PASS
 -- ============================================================
 -- Verify algorithm type classification
 -- ============================================================
-
 -- KEM algorithms should not be usable for signing
 SELECT pqc_sig_keygen('ML-KEM-768');
-
+ERROR:  "ML-KEM-768" is not a signature algorithm
 -- SIG algorithms should not be usable for KEM
 SELECT pqc_kem_keygen('ML-DSA-65');
-
+ERROR:  "ML-DSA-65" is not a KEM algorithm
 DROP EXTENSION pgcrypto_pqc;

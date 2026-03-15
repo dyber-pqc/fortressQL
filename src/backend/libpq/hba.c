@@ -1753,11 +1753,12 @@ parse_hba_line(TokenizedAuthLine *tok_line, int elevel)
 #else
 		unsupauth = "pqc-cert";
 #endif
-	else if (strcmp(token->string, "pqc-scram-sha-384") == 0)
+	else if (strcmp(token->string, "pqc-scram-sha-384") == 0 ||
+			 strcmp(token->string, "pqc-scram") == 0)
 #ifdef USE_PQC
 		parsedline->auth_method = uaPQCSCRAM;
 #else
-		unsupauth = "pqc-scram-sha-384";
+		unsupauth = "pqc-scram";
 #endif
 	else
 	{

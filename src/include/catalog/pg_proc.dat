@@ -12185,4 +12185,17 @@
   proargnames => '{summarized_tli,summarized_lsn,pending_lsn,summarizer_pid}',
   prosrc => 'pg_get_wal_summarizer_state' },
 
+# FortressQL: PQC statistics functions
+{ oid => '6350', descr => 'statistics: post-quantum cryptography operations',
+  proname => 'pg_stat_get_pqc', proisstrict => 'f', provolatile => 's',
+  proparallel => 'r', prorettype => 'record', proargtypes => '',
+  proallargtypes => '{int8,int8,int8,int8,int8,int8,int8,int8,int8,float8,float8,float8,float8}',
+  proargmodes => '{o,o,o,o,o,o,o,o,o,o,o,o,o}',
+  proargnames => '{kem_encapsulations,kem_decapsulations,sig_sign_operations,sig_verify_operations,tde_page_encryptions,tde_page_decryptions,key_cache_hits,key_cache_misses,wal_segments_signed,avg_encrypt_time_ms,avg_sign_time_ms,total_encrypt_time_ms,total_sign_time_ms}',
+  prosrc => 'pg_stat_get_pqc' },
+{ oid => '6351', descr => 'statistics: reset PQC statistics counters',
+  proname => 'pg_stat_reset_pqc', provolatile => 'v',
+  proparallel => 'r', prorettype => 'void', proargtypes => '',
+  prosrc => 'pg_stat_reset_pqc' },
+
 ]

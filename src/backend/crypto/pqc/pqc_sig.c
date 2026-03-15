@@ -156,6 +156,7 @@ pqc_sig_sign(PqcSigContext *ctx,
 		return PQC_ERROR_CRYPTO_FAILURE;
 	}
 
+	pqc_stat_count_sig_sign();
 	return PQC_SUCCESS;
 }
 
@@ -188,6 +189,7 @@ pqc_sig_verify(PqcSigContext *ctx,
 					   public_key) != OQS_SUCCESS)
 		return PQC_ERROR_CRYPTO_FAILURE;
 
+	pqc_stat_count_sig_verify();
 	return PQC_SUCCESS;
 }
 

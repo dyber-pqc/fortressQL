@@ -109,8 +109,8 @@ jobs:
               ss bytea;
             BEGIN
               SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-768');
-              SELECT * INTO enc FROM pqc_kem_encapsulate('ML-KEM-768', keys.public_key);
-              SELECT pqc_kem_decapsulate('ML-KEM-768', enc.ciphertext, keys.secret_key) INTO ss;
+              SELECT * INTO enc FROM pqc_kem_encapsulate(keys.public_key, 'ML-KEM-768');
+              SELECT pqc_kem_decapsulate(enc.ciphertext, keys.secret_key, 'ML-KEM-768') INTO ss;
               IF ss = enc.shared_secret THEN
                 RAISE NOTICE 'KEM round-trip: PASS';
               ELSE

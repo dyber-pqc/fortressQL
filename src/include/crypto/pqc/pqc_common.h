@@ -17,6 +17,8 @@
 #define PQC_COMMON_H
 
 #include "postgres.h"
+#include "port/atomics.h"
+#include "fmgr.h"
 
 /*
  * PQC Algorithm identifiers.
@@ -119,5 +121,117 @@ extern bool pqc_algorithm_is_sig(PqcAlgorithm alg);
  * secret key material from lingering in freed pages.
  */
 extern void pqc_secure_free(void *ptr, size_t len);
+
+/*
+ * PQC Statistics counters.
+ *
+ * Simple atomic counters for tracking PQC operation statistics.
+ * These are process-wide counters that aggregate across all backends
+ * via the pg_stat_pqc view.
+ */
+typedef struct PqcStatCounters
+{
+	pg_atomic_uint64	kem_encaps_count;
+	pg_atomic_uint64	kem_decaps_count;
+	pg_atomic_uint64	sig_sign_count;
+	pg_atomic_uint64	sig_verify_count;
+	pg_atomic_uint64	tde_encryptions;
+	pg_atomic_uint64	tde_decryptions;
+	pg_atomic_uint64	key_cache_hits;
+	pg_atomic_uint64	key_cache_misses;
+	pg_atomic_uint64	wal_segments_signed;
+	pg_atomic_uint64	encrypt_time_us;	/* cumulative microseconds */
+	pg_atomic_uint64	sign_time_us;		/* cumulative microseconds */
+} PqcStatCounters;
+
+/* Global PQC stats counters (allocated in shared memory) */
+extern PqcStatCounters *pqc_stat_counters;
+
+/* Initialize stats counters (called during shared memory setup) */
+extern void pqc_stat_init(void);
+extern Size pqc_stat_shmem_size(void);
+extern void pqc_stat_shmem_startup(void);
+
+/* Counter increment helpers */
+static inline void
+pqc_stat_count_kem_encaps(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->kem_encaps_count, 1);
+}
+
+static inline void
+pqc_stat_count_kem_decaps(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->kem_decaps_count, 1);
+}
+
+static inline void
+pqc_stat_count_sig_sign(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->sig_sign_count, 1);
+}
+
+static inline void
+pqc_stat_count_sig_verify(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->sig_verify_count, 1);
+}
+
+static inline void
+pqc_stat_count_tde_encrypt(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->tde_encryptions, 1);
+}
+
+static inline void
+pqc_stat_count_tde_decrypt(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->tde_decryptions, 1);
+}
+
+static inline void
+pqc_stat_count_key_cache_hit(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->key_cache_hits, 1);
+}
+
+static inline void
+pqc_stat_count_key_cache_miss(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->key_cache_misses, 1);
+}
+
+static inline void
+pqc_stat_count_wal_segment_signed(void)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->wal_segments_signed, 1);
+}
+
+static inline void
+pqc_stat_add_encrypt_time_us(uint64 us)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->encrypt_time_us, us);
+}
+
+static inline void
+pqc_stat_add_sign_time_us(uint64 us)
+{
+	if (pqc_stat_counters)
+		pg_atomic_fetch_add_u64(&pqc_stat_counters->sign_time_us, us);
+}
+
+/* SQL-callable function for pg_stat_pqc view */
+extern Datum pg_stat_get_pqc(PG_FUNCTION_ARGS);
+extern Datum pg_stat_reset_pqc(PG_FUNCTION_ARGS);
 
 #endif							/* PQC_COMMON_H */

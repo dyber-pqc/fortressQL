@@ -46,18 +46,18 @@ static PqcAlgorithmInfo pqc_algorithms[] = {
 	{PQC_ALG_ML_DSA_87, "ML-DSA-87", "ML-DSA-87", PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
 
 	/* SLH-DSA (FIPS 205) - Hash-Based Signatures */
-	{PQC_ALG_SLH_DSA_SHA2_128S,  "SLH-DSA-SHA2-128s",  "SLH-DSA-SHA2-128s",  PQC_TYPE_SIG, 1, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHA2_128F,  "SLH-DSA-SHA2-128f",  "SLH-DSA-SHA2-128f",  PQC_TYPE_SIG, 1, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHA2_192S,  "SLH-DSA-SHA2-192s",  "SLH-DSA-SHA2-192s",  PQC_TYPE_SIG, 3, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHA2_192F,  "SLH-DSA-SHA2-192f",  "SLH-DSA-SHA2-192f",  PQC_TYPE_SIG, 3, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHA2_256S,  "SLH-DSA-SHA2-256s",  "SLH-DSA-SHA2-256s",  PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHA2_256F,  "SLH-DSA-SHA2-256f",  "SLH-DSA-SHA2-256f",  PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHAKE_128S, "SLH-DSA-SHAKE-128s", "SLH-DSA-SHAKE-128s", PQC_TYPE_SIG, 1, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHAKE_128F, "SLH-DSA-SHAKE-128f", "SLH-DSA-SHAKE-128f", PQC_TYPE_SIG, 1, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHAKE_192S, "SLH-DSA-SHAKE-192s", "SLH-DSA-SHAKE-192s", PQC_TYPE_SIG, 3, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHAKE_192F, "SLH-DSA-SHAKE-192f", "SLH-DSA-SHAKE-192f", PQC_TYPE_SIG, 3, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHAKE_256S, "SLH-DSA-SHAKE-256s", "SLH-DSA-SHAKE-256s", PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
-	{PQC_ALG_SLH_DSA_SHAKE_256F, "SLH-DSA-SHAKE-256f", "SLH-DSA-SHAKE-256f", PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHA2_128S,  "SLH-DSA-SHA2-128s",  "SLH-DSA-SHA2-128s-FIPS205",  PQC_TYPE_SIG, 1, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHA2_128F,  "SLH-DSA-SHA2-128f",  "SLH-DSA-SHA2-128f-FIPS205",  PQC_TYPE_SIG, 1, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHA2_192S,  "SLH-DSA-SHA2-192s",  "SLH-DSA-SHA2-192s-FIPS205",  PQC_TYPE_SIG, 3, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHA2_192F,  "SLH-DSA-SHA2-192f",  "SLH-DSA-SHA2-192f-FIPS205",  PQC_TYPE_SIG, 3, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHA2_256S,  "SLH-DSA-SHA2-256s",  "SLH-DSA-SHA2-256s-FIPS205",  PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHA2_256F,  "SLH-DSA-SHA2-256f",  "SLH-DSA-SHA2-256f-FIPS205",  PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHAKE_128S, "SLH-DSA-SHAKE-128s", "SLH-DSA-SHAKE-128s-FIPS205", PQC_TYPE_SIG, 1, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHAKE_128F, "SLH-DSA-SHAKE-128f", "SLH-DSA-SHAKE-128f-FIPS205", PQC_TYPE_SIG, 1, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHAKE_192S, "SLH-DSA-SHAKE-192s", "SLH-DSA-SHAKE-192s-FIPS205", PQC_TYPE_SIG, 3, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHAKE_192F, "SLH-DSA-SHAKE-192f", "SLH-DSA-SHAKE-192f-FIPS205", PQC_TYPE_SIG, 3, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHAKE_256S, "SLH-DSA-SHAKE-256s", "SLH-DSA-SHAKE-256s-FIPS205", PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
+	{PQC_ALG_SLH_DSA_SHAKE_256F, "SLH-DSA-SHAKE-256f", "SLH-DSA-SHAKE-256f-FIPS205", PQC_TYPE_SIG, 5, 0, 0, 0, 0, 0},
 };
 
 StaticAssertDecl(lengthof(pqc_algorithms) == PQC_ALG_COUNT,
@@ -90,6 +90,9 @@ pqc_populate_kem_info(PqcAlgorithmInfo *info)
 
 /*
  * Populate signature algorithm sizes from liboqs at init time.
+ *
+ * SLH-DSA algorithms may not be available in all liboqs builds, so we
+ * silently skip them (sizes remain 0, marking them as unavailable).
  */
 static void
 pqc_populate_sig_info(PqcAlgorithmInfo *info)
@@ -99,8 +102,16 @@ pqc_populate_sig_info(PqcAlgorithmInfo *info)
 	sig = OQS_SIG_new(info->oqs_name);
 	if (sig == NULL)
 	{
-		elog(WARNING, "FortressQL: liboqs does not support signature algorithm \"%s\"",
-			 info->oqs_name);
+		/*
+		 * SLH-DSA algorithms are optional - not all liboqs builds include
+		 * them.  Only warn for algorithms we always expect to be present.
+		 */
+		if (info->alg_id < PQC_ALG_SLH_DSA_SHA2_128S)
+			elog(WARNING, "FortressQL: liboqs does not support signature algorithm \"%s\"",
+				 info->oqs_name);
+		else
+			elog(DEBUG1, "FortressQL: SLH-DSA algorithm \"%s\" not available in this liboqs build",
+				 info->name);
 		return;
 	}
 

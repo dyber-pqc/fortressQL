@@ -6,7 +6,13 @@ if liboqs.found()
     'pqc_common.c',
     'pqc_kem.c',
     'pqc_sig.c',
+    'pqc_stats.c',
     'pqc_wal_keys.c',
     'pqc_wal_verify.c',
+  )
+else
+  # Stats collector is always compiled (returns zeroes without PQC)
+  backend_sources += files(
+    'pqc_stats.c',
   )
 endif

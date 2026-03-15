@@ -65,6 +65,10 @@
 #include "utils/resowner.h"
 #include "utils/timestamp.h"
 
+#ifdef USE_PQC
+#include "crypto/tde/tde.h"
+#endif
+
 
 /* Note: these two macros only work on shared buffers, not local ones! */
 #define BufHdrGetBlock(bufHdr)	((Block) (BufferBlocks + ((Size) (bufHdr)->buf_id) * BLCKSZ))
@@ -1527,6 +1531,32 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 				bufHdr = GetBufferDescriptor(io_buffers[j] - 1);
 				bufBlock = BufHdrGetBlock(bufHdr);
 			}
+
+#ifdef USE_PQC
+			/*
+			 * If TDE is enabled, try to decrypt the page in-place.  We
+			 * check whether the tablespace has an encryption key; if not,
+			 * the page was stored unencrypted and we skip decryption.
+			 * Decryption must happen before page verification because the
+			 * encrypted payload would fail checksum/validity checks.
+			 */
+			if (tde_enabled && !PageIsNew((Page) bufBlock))
+			{
+				TdeKeyEntry *tde_key;
+
+				tde_key = tde_keycache_lookup(
+					operation->smgr->smgr_rlocator.locator.spcOid);
+				if (tde_key != NULL)
+				{
+					tde_decrypt_page((Page) bufBlock, BLCKSZ,
+									 operation->smgr->smgr_rlocator.locator.spcOid,
+									 operation->smgr->smgr_rlocator.locator.dbOid,
+									 operation->smgr->smgr_rlocator.locator.relNumber,
+									 forknum,
+									 io_first_block + j);
+				}
+			}
+#endif							/* USE_PQC */
 
 			/* check for garbage data */
 			if (!PageIsVerifiedExtended((Page) bufBlock, io_first_block + j,
@@ -3916,6 +3946,45 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln, IOObject io_object,
 	 * copy the page to private storage if we do checksumming.
 	 */
 	bufToWrite = PageSetChecksumCopy((Page) bufBlock, buf->tag.blockNum);
+
+#ifdef USE_PQC
+	/*
+	 * If TDE is enabled and this tablespace has an encryption key, encrypt a
+	 * copy of the page before writing to disk.  We must never encrypt the
+	 * in-memory buffer pool page.  PageSetChecksumCopy() may or may not have
+	 * returned a private copy (it does only when checksums are enabled), so
+	 * we must make our own copy if it didn't.
+	 */
+	if (tde_enabled)
+	{
+		TdeKeyEntry *tde_key;
+
+		tde_key = tde_keycache_lookup(reln->smgr_rlocator.locator.spcOid);
+		if (tde_key != NULL)
+		{
+			static char *tde_page_copy = NULL;
+
+			/* Ensure we have a private copy to encrypt */
+			if (bufToWrite == (char *) bufBlock)
+			{
+				if (tde_page_copy == NULL)
+					tde_page_copy = MemoryContextAllocAligned(TopMemoryContext,
+															  BLCKSZ,
+															  PG_IO_ALIGN_SIZE,
+															  0);
+				memcpy(tde_page_copy, bufToWrite, BLCKSZ);
+				bufToWrite = tde_page_copy;
+			}
+
+			tde_encrypt_page((Page) bufToWrite, BLCKSZ,
+							 reln->smgr_rlocator.locator.spcOid,
+							 reln->smgr_rlocator.locator.dbOid,
+							 reln->smgr_rlocator.locator.relNumber,
+							 BufTagGetForkNum(&buf->tag),
+							 buf->tag.blockNum);
+		}
+	}
+#endif							/* USE_PQC */
 
 	io_start = pgstat_prepare_io_time(track_io_timing);
 

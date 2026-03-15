@@ -156,6 +156,7 @@ pqc_kem_encaps(PqcKemContext *ctx,
 		return PQC_ERROR_CRYPTO_FAILURE;
 	}
 
+	pqc_stat_count_kem_encaps();
 	return PQC_SUCCESS;
 }
 
@@ -199,6 +200,7 @@ pqc_kem_decaps(PqcKemContext *ctx,
 		return PQC_ERROR_CRYPTO_FAILURE;
 	}
 
+	pqc_stat_count_kem_decaps();
 	return PQC_SUCCESS;
 }
 

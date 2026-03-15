@@ -77,6 +77,14 @@ typedef struct TdeKeyEntry
 } TdeKeyEntry;
 
 /* ----------------------------------------------------------------
+ *					GUC Variables
+ * ----------------------------------------------------------------
+ */
+
+/* GUC: enable transparent data encryption (default: off) */
+extern bool tde_enabled;
+
+/* ----------------------------------------------------------------
  *					Function Declarations
  * ----------------------------------------------------------------
  */

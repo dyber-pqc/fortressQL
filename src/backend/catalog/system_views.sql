@@ -1381,5 +1381,22 @@ CREATE VIEW pg_crypto_policy_status AS
            current_setting('ssl_pqc_groups') AS pqc_groups,
            current_setting('ssl_pqc_sigalgs') AS pqc_sigalgs;
 
+CREATE VIEW pg_stat_pqc AS
+    SELECT
+        p.kem_encapsulations,
+        p.kem_decapsulations,
+        p.sig_sign_operations,
+        p.sig_verify_operations,
+        p.tde_page_encryptions,
+        p.tde_page_decryptions,
+        p.key_cache_hits,
+        p.key_cache_misses,
+        p.wal_segments_signed,
+        p.avg_encrypt_time_ms,
+        p.avg_sign_time_ms,
+        p.total_encrypt_time_ms,
+        p.total_sign_time_ms
+    FROM pg_stat_get_pqc() p;
+
 CREATE VIEW pg_wait_events AS
     SELECT * FROM pg_get_wait_events();

@@ -33,6 +33,9 @@
 #include "storage/bufpage.h"
 #include "utils/memutils.h"
 
+/* GUC variable: enable Transparent Data Encryption */
+bool		tde_enabled = false;
+
 /*
  * tde_page_crypt
  *

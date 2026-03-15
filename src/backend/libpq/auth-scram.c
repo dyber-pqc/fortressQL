@@ -1577,10 +1577,13 @@ scram_mock_salt(const char *username, pg_cryptohash_type hash_type,
 					 "salt length greater than SHA256 digest length");
 
 	/*
-	 * This may be worth refreshing if support for more hash methods is\
-	 * added.
+	 * FortressQL: support both SHA-256 and SHA-384 for mock salt generation.
+	 * SHA-384 digest (48 bytes) is also larger than SCRAM_DEFAULT_SALT_LEN,
+	 * so the same truncation approach works.
 	 */
-	Assert(hash_type == PG_SHA256);
+	StaticAssertDecl(PG_SHA384_DIGEST_LENGTH >= SCRAM_DEFAULT_SALT_LEN,
+					 "salt length greater than SHA384 digest length");
+	Assert(hash_type == PG_SHA256 || hash_type == PG_SHA384);
 
 	ctx = pg_cryptohash_create(hash_type);
 	if (pg_cryptohash_init(ctx) < 0 ||

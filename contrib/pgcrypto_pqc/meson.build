@@ -14,6 +14,8 @@ install_data(
   'pgcrypto_pqc.control',
   'pgcrypto_pqc--1.0.sql',
   'pgcrypto_pqc--1.0--1.1.sql',
+  'pgcrypto_pqc--1.1--1.2.sql',
+  'pgcrypto_pqc--1.2--1.3.sql',
   kwargs: contrib_data_args,
 )
 

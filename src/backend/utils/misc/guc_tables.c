@@ -92,6 +92,7 @@
 
 #ifdef USE_PQC
 #include "crypto/pqc/pqc_wal_keys.h"
+#include "crypto/tde/tde.h"
 #endif
 
 /* This value is normally passed in from the Makefile */
@@ -2080,6 +2081,16 @@ struct config_bool ConfigureNamesBool[] =
 		},
 		&wal_pqc_verify_on_receive,
 		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"tde_enabled", PGC_SIGHUP, WAL_SETTINGS,
+			gettext_noop("Enables Transparent Data Encryption for tablespaces with encryption configured."),
+			NULL
+		},
+		&tde_enabled,
+		false,
 		NULL, NULL, NULL
 	},
 #endif							/* USE_PQC */
