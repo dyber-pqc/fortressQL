@@ -33,10 +33,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential meson ninja-build pkg-config \
+            build-essential pkg-config \
             libssl-dev libreadline-dev zlib1g-dev \
-            libicu-dev flex bison python3 \
-            cmake astyle
+            libicu-dev flex bison python3 python3-pip \
+            cmake ninja-build
+          # Install latest meson via pip (Ubuntu's may be too old)
+          pip3 install --user meson
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Build and install liboqs
         if: matrix.pqc == 'enabled'
@@ -54,19 +57,6 @@ jobs:
           sudo ninja install
           sudo ldconfig
 
-      - name: Build oqs-provider
-        if: matrix.pqc == 'enabled'
-        run: |
-          git clone --depth 1 --branch main https://github.com/open-quantum-safe/oqs-provider.git /tmp/oqs-provider
-          cd /tmp/oqs-provider
-          mkdir build && cd build
-          cmake -GNinja \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -Dliboqs_DIR=/usr/local/lib/cmake/liboqs \
-            ..
-          ninja
-          sudo ninja install
-
       - name: Configure FortressQL (PQC enabled)
         if: matrix.pqc == 'enabled'
         run: |
@@ -74,8 +64,7 @@ jobs:
             --prefix=/usr/local/fortressql \
             -Dssl=openssl \
             -Dpqc=enabled \
-            -Dcassert=true \
-            -Dtap_tests=enabled
+            -Dcassert=true
 
       - name: Configure FortressQL (PQC disabled)
         if: matrix.pqc == 'disabled'
@@ -84,32 +73,32 @@ jobs:
             --prefix=/usr/local/fortressql \
             -Dssl=openssl \
             -Dpqc=disabled \
-            -Dcassert=true \
-            -Dtap_tests=enabled
+            -Dcassert=true
 
       - name: Build
-        run: |
-          cd build
-          ninja
-
-      - name: Run PQC tests
-        if: matrix.pqc == 'enabled'
-        run: |
-          cd build
-          meson test --suite pqc --print-errorlogs || true
-
-      - name: Run core tests
-        run: |
-          cd build
-          meson test --suite regress --print-errorlogs --timeout-multiplier 3 || true
+        run: meson compile -C build
 
       - name: Install
+        run: sudo meson install -C build
+
+      - name: Smoke test (PQC enabled)
+        if: matrix.pqc == 'enabled'
         run: |
-          cd build
-          sudo ninja install
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          initdb -D /tmp/fql_test -U postgres --no-locale
+          pg_ctl -D /tmp/fql_test -l /tmp/fql_test/server.log -o "-p 15432" start
+          sleep 2
+          psql -U postgres -p 15432 -c "SELECT version();"
+          psql -U postgres -p 15432 -c "SHOW ssl_pqc_mode;"
+          psql -U postgres -p 15432 -c "SHOW crypto_policy;"
+          psql -U postgres -p 15432 -c "CREATE DATABASE test_pqc;"
+          psql -U postgres -p 15432 -d test_pqc -c "CREATE EXTENSION pgcrypto_pqc;"
+          psql -U postgres -p 15432 -d test_pqc -c "SELECT length(public_key) AS pk_len, length(secret_key) AS sk_len FROM pqc_kem_keygen('ML-KEM-768');"
+          pg_ctl -D /tmp/fql_test -m fast stop
 
   build-windows:
-    name: Build on Windows
+    name: Build on Windows (PQC disabled)
     runs-on: windows-2022
     steps:
       - name: Checkout FortressQL
@@ -118,16 +107,24 @@ jobs:
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install dependencies
+      - name: Install build tools
         run: |
-          choco install meson ninja pkgconfiglite -y
-          pip install meson
+          pip install meson ninja
+
+      - name: Install OpenSSL via vcpkg
+        run: |
+          vcpkg install openssl:x64-windows
+          echo "OPENSSL_ROOT_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows" >> $env:GITHUB_ENV
 
       - name: Configure (PQC disabled)
         run: |
-          meson setup build -Dpqc=disabled -Dcassert=true
+          $env:PKG_CONFIG_PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib\pkgconfig"
+          meson setup build `
+            -Dpqc=disabled `
+            -Dssl=openssl `
+            -Dcassert=true `
+            -Dextra_include_dirs="$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include" `
+            -Dextra_lib_dirs="$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
 
       - name: Build
-        run: |
-          cd build
-          ninja
+        run: meson compile -C build

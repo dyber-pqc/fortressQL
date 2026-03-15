@@ -180,7 +180,7 @@ foreach name, opts : pgcommon_variants
       c_pch: pch_c_h,
       include_directories: include_directories('.'),
       kwargs: opts + {
-        'dependencies': opts['dependencies'] + [ssl, liboqs],
+        'dependencies': opts['dependencies'] + [ssl] + (liboqs.found() ? [liboqs] : []),
       }
     )
   pgcommon += {name: lib}

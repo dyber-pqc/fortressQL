@@ -3219,8 +3219,11 @@ libpq_deps += [
   ldap_r,
   libintl,
   ssl,
-  liboqs,
 ]
+
+if liboqs.found()
+  libpq_deps += liboqs
+endif
 
 subdir('src/interfaces/libpq')
 # fe_utils depends on libpq
@@ -3246,11 +3249,14 @@ backend_both_deps += [
   lz4,
   pam,
   ssl,
-  liboqs,
   systemd,
   zlib,
   zstd,
 ]
+
+if liboqs.found()
+  backend_both_deps += liboqs
+endif
 
 backend_mod_deps = backend_both_deps + os_deps
 
