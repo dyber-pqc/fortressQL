@@ -105,7 +105,9 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install build tools
-        run: pip install meson ninja
+        run: |
+          pip install meson ninja
+          choco install winflexbison3 -y --no-progress
 
       - name: Install OpenSSL and find path
         shell: pwsh
