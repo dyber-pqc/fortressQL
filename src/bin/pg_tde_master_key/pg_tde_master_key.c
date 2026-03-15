@@ -66,7 +66,7 @@ typedef struct PqcTdeMasterKeyHeader
 static const char *progname;
 
 static void usage(void);
-static int	cmd_init(const char *datadir);
+static int	cmd_init(const char *datadir, bool force);
 static int	cmd_rotate(const char *datadir);
 static int	cmd_export_pubkey(const char *datadir);
 static int	cmd_info(const char *datadir);
@@ -96,6 +96,7 @@ usage(void)
 	printf(_("  info          show master key information\n"));
 	printf(_("\nOptions:\n"));
 	printf(_("  -D, --pgdata=DATADIR  data directory\n"));
+	printf(_("  -f, --force           overwrite existing master key without prompting\n"));
 	printf(_("  -V, --version         output version information, then exit\n"));
 	printf(_("  -?, --help            show this help, then exit\n"));
 	printf(_("\nIf no data directory (DATADIR) is specified, "
@@ -111,6 +112,7 @@ main(int argc, char *argv[])
 {
 	static struct option long_options[] = {
 		{"pgdata", required_argument, NULL, 'D'},
+		{"force", no_argument, NULL, 'f'},
 		{"version", no_argument, NULL, 'V'},
 		{"help", no_argument, NULL, '?'},
 		{NULL, 0, NULL, 0}
@@ -118,6 +120,7 @@ main(int argc, char *argv[])
 
 	const char *datadir = NULL;
 	const char *command = NULL;
+	bool		force = false;
 	int			c;
 	int			ret;
 
@@ -156,12 +159,15 @@ main(int argc, char *argv[])
 	/* Reset optind for the shifted argv */
 	optind = 1;
 
-	while ((c = getopt_long(argc, argv, "D:V?", long_options, NULL)) != -1)
+	while ((c = getopt_long(argc, argv, "D:fV?", long_options, NULL)) != -1)
 	{
 		switch (c)
 		{
 			case 'D':
 				datadir = optarg;
+				break;
+			case 'f':
+				force = true;
 				break;
 			case 'V':
 				puts("pg_tde_master_key (FortressQL) " PG_VERSION);
@@ -190,9 +196,33 @@ main(int argc, char *argv[])
 	exit(1);
 #endif
 
+	/* Validate PGDATA exists and is a directory */
+	{
+		struct stat datadir_st;
+
+		if (stat(datadir, &datadir_st) != 0)
+		{
+			pg_log_error("data directory \"%s\" does not exist: %m", datadir);
+			exit(1);
+		}
+		if (!S_ISDIR(datadir_st.st_mode))
+		{
+			pg_log_error("\"%s\" is not a directory", datadir);
+			exit(1);
+		}
+#ifndef WIN32
+		/* Warn if PGDATA permissions are too permissive */
+		if (datadir_st.st_mode & (S_IRWXG | S_IRWXO))
+		{
+			pg_log_warning("data directory \"%s\" has group or world access", datadir);
+			pg_log_warning_hint("Recommended permissions are u=rwx (0700).");
+		}
+#endif
+	}
+
 	/* Dispatch command */
 	if (strcmp(command, "init") == 0)
-		ret = cmd_init(datadir);
+		ret = cmd_init(datadir, force);
 	else if (strcmp(command, "rotate") == 0)
 		ret = cmd_rotate(datadir);
 	else if (strcmp(command, "export-pubkey") == 0)
@@ -218,7 +248,7 @@ main(int argc, char *argv[])
  * Prints the hex-encoded secret key to stdout.
  */
 static int
-cmd_init(const char *datadir)
+cmd_init(const char *datadir, bool force)
 {
 	PqcKemContext *ctx;
 	char		keypath[MAXPGPATH];
@@ -229,9 +259,15 @@ cmd_init(const char *datadir)
 	snprintf(keypath, sizeof(keypath), "%s/%s", datadir, PQC_TDE_MASTER_KEY_FILE);
 	if (stat(keypath, &st) == 0)
 	{
-		pg_log_error("master key already exists at \"%s\"", keypath);
-		pg_log_error_hint("Use \"%s rotate\" to rotate the master key.", progname);
-		return 1;
+		if (!force)
+		{
+			pg_log_error("master key already exists at \"%s\"", keypath);
+			pg_log_error_hint("Use --force to overwrite, or \"%s rotate\" to rotate the master key.",
+							  progname);
+			return 1;
+		}
+		pg_log_warning("overwriting existing master key at \"%s\" (--force)",
+					   keypath);
 	}
 
 	/* Initialize liboqs */
@@ -241,7 +277,11 @@ cmd_init(const char *datadir)
 	ctx = pqc_kem_ctx_new(PQC_TDE_KEM_ALGORITHM);
 	if (ctx == NULL)
 	{
-		pg_log_error("failed to create KEM context for %s", PQC_TDE_KEM_ALGORITHM);
+		pg_log_error("failed to create KEM context for %s: "
+					 "liboqs initialization may have failed", PQC_TDE_KEM_ALGORITHM);
+		pg_log_error_hint("Ensure liboqs is properly installed and supports %s.",
+						  PQC_TDE_KEM_ALGORITHM);
+		OQS_destroy();
 		return 1;
 	}
 
@@ -250,13 +290,16 @@ cmd_init(const char *datadir)
 	{
 		pg_log_error("failed to generate ML-KEM-768 keypair");
 		pqc_kem_ctx_free(ctx);
+		OQS_destroy();
 		return 1;
 	}
 
 	/* Write master key files */
 	if (write_master_key_files(datadir, ctx->public_key, ctx->public_key_len, 0) != 0)
 	{
+		OQS_MEM_cleanse(ctx->secret_key, ctx->secret_key_len);
 		pqc_kem_ctx_free(ctx);
+		OQS_destroy();
 		return 1;
 	}
 
@@ -265,7 +308,10 @@ cmd_init(const char *datadir)
 	if (hex_sk == NULL)
 	{
 		pg_log_error("out of memory");
+		/* Securely wipe secret key before freeing context */
+		OQS_MEM_cleanse(ctx->secret_key, ctx->secret_key_len);
 		pqc_kem_ctx_free(ctx);
+		OQS_destroy();
 		return 1;
 	}
 	bytes_to_hex(ctx->secret_key, ctx->secret_key_len,
@@ -285,6 +331,7 @@ cmd_init(const char *datadir)
 	/* Securely wipe secret key from memory */
 	OQS_MEM_cleanse(hex_sk, ctx->secret_key_len * 2 + 1);
 	free(hex_sk);
+	OQS_MEM_cleanse(ctx->secret_key, ctx->secret_key_len);
 	pqc_kem_ctx_free(ctx);
 	OQS_destroy();
 
@@ -336,7 +383,11 @@ cmd_rotate(const char *datadir)
 	ctx = pqc_kem_ctx_new(PQC_TDE_KEM_ALGORITHM);
 	if (ctx == NULL)
 	{
-		pg_log_error("failed to create KEM context for %s", PQC_TDE_KEM_ALGORITHM);
+		pg_log_error("failed to create KEM context for %s: "
+					 "liboqs initialization may have failed", PQC_TDE_KEM_ALGORITHM);
+		pg_log_error_hint("Ensure liboqs is properly installed and supports %s.",
+						  PQC_TDE_KEM_ALGORITHM);
+		OQS_destroy();
 		return 1;
 	}
 
@@ -344,6 +395,7 @@ cmd_rotate(const char *datadir)
 	{
 		pg_log_error("failed to generate ML-KEM-768 keypair");
 		pqc_kem_ctx_free(ctx);
+		OQS_destroy();
 		return 1;
 	}
 
@@ -351,7 +403,9 @@ cmd_rotate(const char *datadir)
 	if (write_master_key_files(datadir, ctx->public_key, ctx->public_key_len,
 							   rotation_count) != 0)
 	{
+		OQS_MEM_cleanse(ctx->secret_key, ctx->secret_key_len);
 		pqc_kem_ctx_free(ctx);
+		OQS_destroy();
 		return 1;
 	}
 
@@ -360,7 +414,9 @@ cmd_rotate(const char *datadir)
 	if (hex_sk == NULL)
 	{
 		pg_log_error("out of memory");
+		OQS_MEM_cleanse(ctx->secret_key, ctx->secret_key_len);
 		pqc_kem_ctx_free(ctx);
+		OQS_destroy();
 		return 1;
 	}
 	bytes_to_hex(ctx->secret_key, ctx->secret_key_len,
@@ -377,6 +433,7 @@ cmd_rotate(const char *datadir)
 
 	OQS_MEM_cleanse(hex_sk, ctx->secret_key_len * 2 + 1);
 	free(hex_sk);
+	OQS_MEM_cleanse(ctx->secret_key, ctx->secret_key_len);
 	pqc_kem_ctx_free(ctx);
 	OQS_destroy();
 
@@ -507,7 +564,7 @@ cmd_info(const char *datadir)
 #else							/* !USE_PQC */
 
 /* Stub implementations when PQC is not compiled in */
-static int cmd_init(const char *datadir)
+static int cmd_init(const char *datadir, bool force)
 {
 	pg_log_error("PQC support not compiled in");
 	return 1;

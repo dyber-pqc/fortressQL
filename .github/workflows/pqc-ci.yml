@@ -85,6 +85,14 @@ jobs:
           cd build
           meson test pgcrypto_pqc --timeout-multiplier 4 --print-errorlogs || true
 
+      - name: Run TAP integration tests (pg_upgrade)
+        if: matrix.pqc == 'enabled'
+        run: |
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          cd build
+          meson test pg_upgrade/ --timeout-multiplier 4 --print-errorlogs || true
+
       - name: Smoke test (PQC enabled)
         if: matrix.pqc == 'enabled'
         run: |
@@ -135,6 +143,43 @@ jobs:
               END IF;
             END \$\$;"
           pg_ctl -D /tmp/fql_test -m fast stop
+
+      - name: Test column encryption
+        if: matrix.pqc == 'enabled'
+        run: |
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          pg_ctl -D /tmp/fql_test -l /tmp/fql_test/server.log -o "-p 15432" start
+          sleep 2
+          psql -U postgres -p 15432 -d test_pqc -c "
+            DO \$\$
+            DECLARE
+              keys RECORD;
+              encrypted bytea;
+              decrypted bytea;
+              original bytea := 'Hello FortressQL!'::bytea;
+            BEGIN
+              SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-768');
+              SELECT pqc_encrypt_column(original, keys.public_key) INTO encrypted;
+              SELECT pqc_decrypt_column(encrypted, keys.secret_key) INTO decrypted;
+              IF decrypted = original THEN
+                RAISE NOTICE 'Column encryption round-trip: PASS';
+              ELSE
+                RAISE EXCEPTION 'Column encryption round-trip: FAIL';
+              END IF;
+            END \$\$;"
+          pg_ctl -D /tmp/fql_test -m fast stop
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.os }}-${{ matrix.pqc }}
+          path: |
+            /tmp/fql_test/server.log
+            build/meson-logs/
+            build/testrun/
+          retention-days: 7
 
   build-windows:
     name: Build on Windows (PQC disabled)

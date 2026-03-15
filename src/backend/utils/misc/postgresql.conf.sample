@@ -119,16 +119,37 @@
 #ssl_passphrase_command = ''
 #ssl_passphrase_command_supports_reload = off
 
-# - FortressQL: Post-Quantum Cryptography -
+# - FortressQL: Post-Quantum Cryptography (PQC TLS) -
+
 #ssl_pqc_mode = hybrid			# off, hybrid, pqc-only
-#ssl_pqc_groups = 'X25519MLKEM768:X25519:prime256v1'  # PQC key exchange groups
-#ssl_pqc_sigalgs = ''			# PQC signature algorithms (empty = defaults)
+					# off: classical TLS only, no PQC
+					# hybrid: classical + PQC key exchange
+					#   (recommended; secure even if one breaks)
+					# pqc-only: PQC only, rejects classical clients
+#ssl_pqc_groups = 'X25519MLKEM768:X25519:prime256v1'
+					# colon-separated list of key exchange groups
+					# in preference order; clients negotiate the
+					# first mutually supported group
+#ssl_pqc_sigalgs = ''			# colon-separated TLS signature algorithms
+					# e.g. 'mldsa65:ed25519'
+					# empty = accept OpenSSL defaults
+
+# - FortressQL: Crypto Agility Engine -
+
 #crypto_policy = custom			# custom, legacy, transitional,
 					# fips-pqc-level3, fips-pqc-level5
-					# Sets a cryptographic policy profile that
-					# cascades password_encryption, ssl_pqc_mode,
-					# ssl_pqc_groups, and ssl_pqc_sigalgs.
-					# "custom" allows manual configuration.
+					#
+					# Sets a coordinated cryptographic policy
+					# that cascades to password_encryption,
+					# ssl_pqc_mode, ssl_pqc_groups, ssl_pqc_sigalgs.
+					#
+					# legacy: no PQC, scram-sha-256
+					# transitional: hybrid PQC, scram-sha-256
+					# fips-pqc-level3: hybrid PQC, scram-sha-384,
+					#   ML-KEM-768, ML-DSA-65
+					# fips-pqc-level5: hybrid PQC, scram-sha-384,
+					#   ML-KEM-1024, ML-DSA-87
+					# custom: manual configuration of all params
 
 
 #------------------------------------------------------------------------------
@@ -266,13 +287,21 @@
 
 # - FortressQL: Post-Quantum WAL Signing -
 
-#wal_pqc_signing = off			# sign WAL segments with PQC signatures
+#wal_pqc_signing = off			# sign completed WAL segments with PQC
+					# digital signatures (ML-DSA)
 					# (change requires restart)
-#wal_pqc_signing_algorithm = 'ML-DSA-65'  # PQC signature algorithm
+#wal_pqc_signing_algorithm = 'ML-DSA-65'
+					# signature algorithm for WAL signing;
+					# ML-DSA-44 (Level 1), ML-DSA-65 (Level 3),
+					# ML-DSA-87 (Level 5)
 					# (change requires restart)
-#wal_pqc_key_path = ''			# directory for WAL signing key files
+#wal_pqc_key_path = ''			# directory containing WAL signing keypair
+					# (wal_sign.key, wal_sign.pub)
+					# generate via pqc_rotate_wal_signing_keys()
 					# (change requires restart)
-#wal_pqc_verify_on_receive = on		# verify PQC signatures on received WAL
+#wal_pqc_verify_on_receive = on		# verify PQC signatures on WAL segments
+					# received by standbys; set to off only for
+					# debugging, never in production
 
 # - Checkpoints -
 
@@ -859,6 +888,49 @@
 					# a directory, e.g., 'conf.d'
 #include_if_exists = '...'		# include file only if it exists
 #include = '...'			# include file
+
+
+#------------------------------------------------------------------------------
+# FORTRESSQL: TRANSPARENT DATA ENCRYPTION (TDE)
+#------------------------------------------------------------------------------
+
+# TDE encrypts heap pages, indexes, and WAL at rest using AES-256-CTR with
+# keys derived from an ML-KEM-wrapped master key. No application changes are
+# required; encryption and decryption are transparent to SQL queries.
+
+#fortressql_tde_enabled = off		# enable transparent data encryption
+					# for heap, index, and WAL pages
+					# (change requires restart)
+#fortressql_master_key_command = ''	# shell command whose stdout provides
+					# the master key passphrase
+					# e.g. 'vault read -field=key secret/fortressql/master'
+					# (change requires restart)
+#fortressql_kem_algorithm = 'ML-KEM-768'
+					# KEM algorithm for master key wrapping;
+					# ML-KEM-512 (Level 1),
+					# ML-KEM-768 (Level 3, recommended),
+					# ML-KEM-1024 (Level 5)
+					# (change requires restart)
+
+
+#------------------------------------------------------------------------------
+# FORTRESSQL: HYBRID PROOF LOGGING (AUDIT)
+#------------------------------------------------------------------------------
+
+# Tamper-evident audit logging with dual classical (Ed25519) + post-quantum
+# (ML-DSA) signatures per audit entry, plus SHA-384 hash chain integrity.
+# Covers DDL, authentication, GRANT/REVOKE, ALTER SYSTEM, and more.
+
+#pqc_audit.enabled = off		# enable hybrid proof audit logging
+#pqc_audit.events = 'ddl,auth,policy,grant'
+					# comma-separated event categories to audit:
+					#   ddl    - CREATE/ALTER/DROP on any object
+					#   auth   - login successes and failures
+					#   policy - ALTER SYSTEM, crypto_policy changes
+					#   grant  - GRANT and REVOKE statements
+					#   dml    - INSERT/UPDATE/DELETE (caution: high volume)
+					#   system - server start/stop, checkpoint, recovery
+					#   all    - all of the above
 
 
 #------------------------------------------------------------------------------

@@ -1,0 +1,163 @@
+-- FortressQL PQC: Column-level encryption regression tests
+-- Tests column encrypt/decrypt, text wrappers, wrong key rejection,
+-- large data, empty data, and multiple KEM algorithms.
+-- Requires pgcrypto_pqc extension version 1.2
+
+CREATE EXTENSION pgcrypto_pqc;
+ALTER EXTENSION pgcrypto_pqc UPDATE TO '1.2';
+
+-- ============================================================
+-- Test 1: Basic column encrypt/decrypt round-trip
+-- ============================================================
+
+DO $$
+DECLARE
+  keys RECORD;
+  original bytea := 'Hello FortressQL!'::bytea;
+  encrypted bytea;
+  decrypted bytea;
+BEGIN
+  SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-768');
+  SELECT pqc_encrypt_column(original, keys.public_key) INTO encrypted;
+  SELECT pqc_decrypt_column(encrypted, keys.secret_key) INTO decrypted;
+  IF decrypted = original THEN
+    RAISE NOTICE 'Column encrypt/decrypt: PASS';
+  ELSE
+    RAISE EXCEPTION 'Column encrypt/decrypt: FAIL - data mismatch';
+  END IF;
+END $$;
+
+-- ============================================================
+-- Test 2: Text convenience wrappers
+-- ============================================================
+
+DO $$
+DECLARE
+  keys RECORD;
+  encrypted bytea;
+  decrypted text;
+BEGIN
+  SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-768');
+  SELECT pqc_encrypt_text('Quantum-safe text encryption', keys.public_key) INTO encrypted;
+  SELECT pqc_decrypt_text(encrypted, keys.secret_key) INTO decrypted;
+  IF decrypted = 'Quantum-safe text encryption' THEN
+    RAISE NOTICE 'Text encrypt/decrypt: PASS';
+  ELSE
+    RAISE EXCEPTION 'Text encrypt/decrypt: FAIL';
+  END IF;
+END $$;
+
+-- ============================================================
+-- Test 3: Wrong key rejection
+-- ============================================================
+
+DO $$
+DECLARE
+  keys_a RECORD;
+  keys_b RECORD;
+  original bytea := 'secret data'::bytea;
+  encrypted bytea;
+  decrypted bytea;
+  rejected boolean := false;
+BEGIN
+  SELECT * INTO keys_a FROM pqc_kem_keygen('ML-KEM-768');
+  SELECT * INTO keys_b FROM pqc_kem_keygen('ML-KEM-768');
+  SELECT pqc_encrypt_column(original, keys_a.public_key) INTO encrypted;
+  BEGIN
+    SELECT pqc_decrypt_column(encrypted, keys_b.secret_key) INTO decrypted;
+    -- If decryption succeeds but produces wrong data, that's also a rejection
+    IF decrypted IS NULL OR decrypted <> original THEN
+      rejected := true;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    rejected := true;
+  END;
+  IF rejected THEN
+    RAISE NOTICE 'Wrong key rejection: PASS';
+  ELSE
+    RAISE EXCEPTION 'Wrong key rejection: FAIL - decrypted with wrong key';
+  END IF;
+END $$;
+
+-- ============================================================
+-- Test 4: Large data (100KB)
+-- ============================================================
+
+DO $$
+DECLARE
+  keys RECORD;
+  large_data bytea;
+  encrypted bytea;
+  decrypted bytea;
+BEGIN
+  SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-768');
+  -- Generate 100KB of data by repeating a pattern
+  large_data := decode(repeat('41', 102400), 'hex');
+  SELECT pqc_encrypt_column(large_data, keys.public_key) INTO encrypted;
+  SELECT pqc_decrypt_column(encrypted, keys.secret_key) INTO decrypted;
+  IF decrypted = large_data THEN
+    RAISE NOTICE 'Large data (100KB) encrypt/decrypt: PASS';
+  ELSE
+    RAISE EXCEPTION 'Large data (100KB) encrypt/decrypt: FAIL - data mismatch (got % bytes, expected %)',
+      length(decrypted), length(large_data);
+  END IF;
+END $$;
+
+-- ============================================================
+-- Test 5: Empty data
+-- ============================================================
+
+DO $$
+DECLARE
+  keys RECORD;
+  empty_data bytea := ''::bytea;
+  encrypted bytea;
+  decrypted bytea;
+BEGIN
+  SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-768');
+  SELECT pqc_encrypt_column(empty_data, keys.public_key) INTO encrypted;
+  SELECT pqc_decrypt_column(encrypted, keys.secret_key) INTO decrypted;
+  IF decrypted = empty_data THEN
+    RAISE NOTICE 'Empty data encrypt/decrypt: PASS';
+  ELSE
+    RAISE EXCEPTION 'Empty data encrypt/decrypt: FAIL';
+  END IF;
+END $$;
+
+-- ============================================================
+-- Test 6: Different algorithms (ML-KEM-512, ML-KEM-1024)
+-- ============================================================
+
+DO $$
+DECLARE
+  keys RECORD;
+  original bytea := 'Algorithm compatibility test'::bytea;
+  encrypted bytea;
+  decrypted bytea;
+BEGIN
+  -- ML-KEM-512
+  SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-512');
+  SELECT pqc_encrypt_column(original, keys.public_key, 'ML-KEM-512') INTO encrypted;
+  SELECT pqc_decrypt_column(encrypted, keys.secret_key, 'ML-KEM-512') INTO decrypted;
+  IF decrypted = original THEN
+    RAISE NOTICE 'ML-KEM-512 column encrypt/decrypt: PASS';
+  ELSE
+    RAISE EXCEPTION 'ML-KEM-512 column encrypt/decrypt: FAIL';
+  END IF;
+
+  -- ML-KEM-1024
+  SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-1024');
+  SELECT pqc_encrypt_column(original, keys.public_key, 'ML-KEM-1024') INTO encrypted;
+  SELECT pqc_decrypt_column(encrypted, keys.secret_key, 'ML-KEM-1024') INTO decrypted;
+  IF decrypted = original THEN
+    RAISE NOTICE 'ML-KEM-1024 column encrypt/decrypt: PASS';
+  ELSE
+    RAISE EXCEPTION 'ML-KEM-1024 column encrypt/decrypt: FAIL';
+  END IF;
+END $$;
+
+-- ============================================================
+-- Cleanup
+-- ============================================================
+
+DROP EXTENSION pgcrypto_pqc;

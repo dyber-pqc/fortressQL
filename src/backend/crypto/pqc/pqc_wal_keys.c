@@ -197,18 +197,42 @@ pqc_wal_load_signing_keys(const char *key_path, const char *algorithm)
 		size_t		expected_pk = pqc_sig_public_key_len(wal_sig_algorithm);
 
 		if (expected_sk > 0 && wal_secret_key_len != expected_sk)
-			ereport(ERROR,
+		{
+			ereport(WARNING,
 					(errcode(ERRCODE_DATA_CORRUPTED),
 					 errmsg("WAL signing secret key has wrong size: "
-							"got %zu, expected %zu for %s",
+							"got %zu, expected %zu for %s; "
+							"disabling WAL PQC signing",
 							wal_secret_key_len, expected_sk, algorithm)));
+			pqc_secure_free(wal_secret_key, wal_secret_key_len);
+			wal_secret_key = NULL;
+			wal_secret_key_len = 0;
+			pfree(wal_public_key);
+			wal_public_key = NULL;
+			wal_public_key_len = 0;
+			wal_pqc_signing = false;
+			wal_keys_loaded = false;
+			return;
+		}
 
 		if (expected_pk > 0 && wal_public_key_len != expected_pk)
-			ereport(ERROR,
+		{
+			ereport(WARNING,
 					(errcode(ERRCODE_DATA_CORRUPTED),
 					 errmsg("WAL signing public key has wrong size: "
-							"got %zu, expected %zu for %s",
+							"got %zu, expected %zu for %s; "
+							"disabling WAL PQC signing",
 							wal_public_key_len, expected_pk, algorithm)));
+			pqc_secure_free(wal_secret_key, wal_secret_key_len);
+			wal_secret_key = NULL;
+			wal_secret_key_len = 0;
+			pfree(wal_public_key);
+			wal_public_key = NULL;
+			wal_public_key_len = 0;
+			wal_pqc_signing = false;
+			wal_keys_loaded = false;
+			return;
+		}
 	}
 
 	wal_keys_loaded = true;
@@ -239,6 +263,24 @@ pqc_wal_generate_signing_keys(const char *key_path, const char *algorithm)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("wal_pqc_key_path must be set for key generation")));
+
+	/* Validate key directory exists */
+	{
+		struct stat dir_st;
+
+		if (stat(key_path, &dir_st) != 0)
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("WAL signing key directory \"%s\" does not exist: %m",
+							key_path),
+					 errhint("Create the directory before generating keys.")));
+
+		if (!S_ISDIR(dir_st.st_mode))
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("WAL signing key path \"%s\" is not a directory",
+							key_path)));
+	}
 
 	wal_sig_algorithm = pqc_wal_resolve_algorithm(algorithm);
 
@@ -316,7 +358,17 @@ pqc_wal_sign_data(const uint8 *data, size_t data_len,
 	if (status != PQC_SUCCESS)
 	{
 		ereport(WARNING,
-				(errmsg("PQC WAL segment signing failed")));
+				(errmsg("PQC WAL segment signing failed: "
+						"signature generation returned error")));
+		return -1;
+	}
+
+	if (sig == NULL || actual_sig_len == 0)
+	{
+		ereport(WARNING,
+				(errmsg("PQC WAL segment signing produced empty signature")));
+		if (sig)
+			pfree(sig);
 		return -1;
 	}
 

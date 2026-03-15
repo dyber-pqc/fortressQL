@@ -92,7 +92,9 @@ tde_page_crypt(Page page, Size pageSize,
 		EVP_CIPHER_CTX_free(ctx);
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("TDE: failed to initialize AES-256-CTR")));
+				 errmsg("TDE: failed to initialize AES-256-CTR for page "
+						"(spc=%u, db=%u, rel=%u, blk=%u)",
+						spcOid, dbOid, relNumber, blockNum)));
 	}
 
 	/* Encrypt/decrypt the page payload (after header) in-place */
@@ -104,7 +106,9 @@ tde_page_crypt(Page page, Size pageSize,
 		EVP_CIPHER_CTX_free(ctx);
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("TDE: AES-256-CTR encryption/decryption failed")));
+				 errmsg("TDE: AES-256-CTR encryption/decryption failed for page "
+						"(spc=%u, db=%u, rel=%u, blk=%u)",
+						spcOid, dbOid, relNumber, blockNum)));
 	}
 
 	/*
@@ -116,7 +120,9 @@ tde_page_crypt(Page page, Size pageSize,
 		EVP_CIPHER_CTX_free(ctx);
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("TDE: AES-256-CTR finalization failed")));
+				 errmsg("TDE: AES-256-CTR finalization failed for page "
+						"(spc=%u, db=%u, rel=%u, blk=%u)",
+						spcOid, dbOid, relNumber, blockNum)));
 	}
 
 	EVP_CIPHER_CTX_free(ctx);
@@ -126,6 +132,11 @@ tde_page_crypt(Page page, Size pageSize,
  * tde_encrypt_page
  *
  * Encrypt a data page in-place before writing to disk.
+ *
+ * If OpenSSL returns an error, we log which page failed and return the
+ * original unencrypted page rather than crashing the server.  The page
+ * will be written in cleartext, which is a security degradation but
+ * preferable to a server crash.
  */
 void
 tde_encrypt_page(Page page, Size pageSize,
@@ -134,8 +145,26 @@ tde_encrypt_page(Page page, Size pageSize,
 				 ForkNumber forkNum,
 				 BlockNumber blockNum)
 {
-	tde_page_crypt(page, pageSize, spcOid, dbOid,
-				   relNumber, forkNum, blockNum);
+	PG_TRY();
+	{
+		tde_page_crypt(page, pageSize, spcOid, dbOid,
+					   relNumber, forkNum, blockNum);
+	}
+	PG_CATCH();
+	{
+		/*
+		 * Log the failure with page identity but don't crash.  The page
+		 * will be written unencrypted.
+		 */
+		EmitErrorReport();
+		FlushErrorState();
+		ereport(WARNING,
+				(errmsg("TDE: encryption failed for page "
+						"(spc=%u, db=%u, rel=%u, blk=%u), "
+						"writing page unencrypted",
+						spcOid, dbOid, relNumber, blockNum)));
+	}
+	PG_END_TRY();
 }
 
 /*
@@ -143,6 +172,10 @@ tde_encrypt_page(Page page, Size pageSize,
  *
  * Decrypt a data page in-place after reading from disk.
  * AES-256-CTR is symmetric, so this is the same operation as encrypt.
+ *
+ * If decryption fails, we emit a WARNING with page identity and return
+ * the page as-is.  The page may have been stored unencrypted (e.g., if
+ * encryption failed on write), so returning it unchanged is reasonable.
  */
 void
 tde_decrypt_page(Page page, Size pageSize,
@@ -151,8 +184,26 @@ tde_decrypt_page(Page page, Size pageSize,
 				 ForkNumber forkNum,
 				 BlockNumber blockNum)
 {
-	tde_page_crypt(page, pageSize, spcOid, dbOid,
-				   relNumber, forkNum, blockNum);
+	PG_TRY();
+	{
+		tde_page_crypt(page, pageSize, spcOid, dbOid,
+					   relNumber, forkNum, blockNum);
+	}
+	PG_CATCH();
+	{
+		/*
+		 * Decryption failed - the page may be unencrypted or corrupted.
+		 * Return it as-is and let upper layers deal with any corruption.
+		 */
+		EmitErrorReport();
+		FlushErrorState();
+		ereport(WARNING,
+				(errmsg("TDE: decryption failed for page "
+						"(spc=%u, db=%u, rel=%u, blk=%u), "
+						"returning page as-is (may be unencrypted)",
+						spcOid, dbOid, relNumber, blockNum)));
+	}
+	PG_END_TRY();
 }
 
 #endif							/* USE_PQC */

@@ -379,8 +379,13 @@ be_tls_init(bool isServerStart)
 					 errmsg("could not set PQC key exchange groups \"%s\": %s",
 							ssl_pqc_groups_string,
 							SSLerrmessage(ERR_get_error())),
+					 errdetail("The following groups were requested but could "
+							   "not be configured: \"%s\". TLS will fall back "
+							   "to classical key exchange only.",
+							   ssl_pqc_groups_string),
 					 errhint("Ensure OpenSSL 3.5+ or oqs-provider is installed "
 							 "for PQC group support.")));
+			ERR_clear_error();
 			goto error;
 		}
 
@@ -733,6 +738,28 @@ aloop:
 			}
 		}
 	}
+
+	/*
+	 * FortressQL: Log the actually-negotiated PQC key exchange group on
+	 * successful connection.  This helps operators verify that PQC hybrid
+	 * key exchange is active.
+	 */
+#ifdef USE_PQC
+	if (ssl_pqc_mode != PQC_TLS_OFF)
+	{
+		char		pqc_group[128];
+
+		be_tls_get_pqc_group(port, pqc_group, sizeof(pqc_group));
+		if (pqc_group[0] != '\0')
+			ereport(LOG,
+					(errmsg("FortressQL: TLS connection established using "
+							"PQC group \"%s\"", pqc_group)));
+		else
+			ereport(LOG,
+					(errmsg("FortressQL: TLS connection established without "
+							"PQC key exchange (classical groups only)")));
+	}
+#endif							/* USE_PQC */
 
 	/* Get client certificate, if available. */
 	port->peer = SSL_get_peer_certificate(port->ssl);

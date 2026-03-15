@@ -30,6 +30,10 @@ tests += {
       'pgcrypto_pqc_security',
       'pgcrypto_pqc_stress',
       'pgcrypto_pqc_audit',
+      'pgcrypto_pqc_column',
+      'pgcrypto_pqc_escrow',
+      'pgcrypto_pqc_compliance',
+      'pgcrypto_pqc_benchmark',
     ],
   },
 }

@@ -4714,7 +4714,7 @@ struct config_string ConfigureNamesString[] =
 #else
 		"",
 #endif
-		NULL, NULL, NULL
+		check_ssl_pqc_groups, NULL, NULL
 	},
 
 	{
@@ -4750,7 +4750,7 @@ struct config_string ConfigureNamesString[] =
 		},
 		&wal_pqc_key_path,
 		"",
-		NULL, NULL, NULL
+		check_wal_pqc_key_path, NULL, NULL
 	},
 #endif							/* USE_PQC */
 

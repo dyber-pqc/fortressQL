@@ -338,5 +338,14 @@ main(int argc, char *argv[])
 		   ControlFile->data_checksum_version);
 	printf(_("Mock authentication nonce:            %s\n"),
 		   mock_auth_nonce_str);
+
+	/* FortressQL PQC build information */
+#ifdef USE_PQC
+	printf(_("FortressQL PQC:                       %s\n"), _("enabled"));
+	printf(_("FortressQL version:                   %s\n"), "0.1.2");
+#else
+	printf(_("FortressQL PQC:                       %s\n"), _("disabled"));
+#endif
+
 	return 0;
 }

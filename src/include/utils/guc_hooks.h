@@ -183,4 +183,10 @@ extern bool check_synchronized_standby_slots(char **newval, void **extra,
 											 GucSource source);
 extern void assign_synchronized_standby_slots(const char *newval, void *extra);
 
+/* FortressQL: PQC GUC validation hooks */
+extern bool check_wal_pqc_key_path(char **newval, void **extra,
+								   GucSource source);
+extern bool check_ssl_pqc_groups(char **newval, void **extra,
+								 GucSource source);
+
 #endif							/* GUC_HOOKS_H */

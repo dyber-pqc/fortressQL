@@ -46,3 +46,7 @@ lib*.pc
 /Release/
 /tmp_install/
 /portlock/
+
+# Local build helpers
+/build_env.bat
+/native-file.ini

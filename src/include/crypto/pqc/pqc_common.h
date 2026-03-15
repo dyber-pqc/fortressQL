@@ -234,4 +234,13 @@ pqc_stat_add_sign_time_us(uint64 us)
 extern Datum pg_stat_get_pqc(PG_FUNCTION_ARGS);
 extern Datum pg_stat_reset_pqc(PG_FUNCTION_ARGS);
 
+/*
+ * Startup preflight check.
+ *
+ * Validates PQC configuration at server startup: checks TDE master key
+ * infrastructure, WAL signing key availability, and liboqs status.
+ * Safe to call even when USE_PQC is not defined (becomes a no-op).
+ */
+extern void pqc_preflight_check(void);
+
 #endif							/* PQC_COMMON_H */

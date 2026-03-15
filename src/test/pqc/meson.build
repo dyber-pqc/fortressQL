@@ -11,6 +11,14 @@ tests += {
     'tests': [
       't/001_tde_performance.pl',
       't/002_backup_pqc_roundtrip.pl',
+      't/003_tde_integration.pl',
+      't/004_wal_signing.pl',
+      't/007_crypto_policy.pl',
+      't/009_stats_pqc.pl',
+      't/010_replication_pqc.pl',
+      't/011_failover_pqc.pl',
+      't/012_tde_benchmark.pl',
+      't/013_tls_benchmark.pl',
     ],
   },
 }

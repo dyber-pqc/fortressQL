@@ -13,6 +13,68 @@
   integrated across TLS, authentication, transparent data encryption, replication, backups, and audit.
 </p>
 
+<p align="center">
+  <a href="doc/fortressql-admin-guide.md">Admin Guide</a> |
+  <a href="doc/fortressql-threat-model.md">Threat Model</a> |
+  <a href="#quick-start">Quick Start</a> |
+  <a href="#building">Build from Source</a>
+</p>
+
+---
+
+## Feature Status
+
+| Feature | Status | NIST Level | Algorithm |
+|---------|--------|------------|-----------|
+| PQC TLS (hybrid key exchange) | Stable | Level 3 | X25519MLKEM768 |
+| PQC Certificate Auth (pqc-cert) | Stable | Level 3 | ML-DSA-65, SLH-DSA |
+| PQC SCRAM-SHA-384 Auth | Stable | Level 3 | SHA-384 |
+| Transparent Data Encryption (TDE) | Stable | Level 3 | AES-256-CTR + ML-KEM-768 |
+| WAL Signing | Stable | Level 3 | ML-DSA-65 |
+| PQC-Encrypted Backups | Stable | Level 3 | ML-KEM-768 + ML-DSA-65 |
+| Crypto Agility Engine | Stable | Level 3/5 | Policy-driven |
+| Hybrid Proof Logging | Stable | Level 3 | Ed25519 + ML-DSA-65 |
+| pgcrypto_pqc Extension | Stable | Level 1-5 | ML-KEM, ML-DSA, SLH-DSA |
+
+---
+
+## Quick Start
+
+Get FortressQL running with PQC TLS in 5 minutes on Ubuntu 24.04.
+
+```bash
+# 1. Install dependencies
+sudo apt install -y build-essential meson ninja-build cmake git \
+    libssl-dev libreadline-dev zlib1g-dev flex bison pkg-config
+
+# 2. Build and install liboqs
+git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git
+cd liboqs && mkdir build && cd build
+cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_SHARED_LIBS=ON -DOQS_BUILD_ONLY_LIB=ON ..
+ninja && sudo ninja install && sudo ldconfig
+cd ../..
+
+# 3. Build FortressQL
+cd sql-pqc
+meson setup build -Dpqc=enabled -Dssl=openssl
+meson compile -C build
+sudo meson install -C build
+
+# 4. Initialize and start
+sudo -u postgres initdb -D /var/lib/fortressql/data
+# Edit /var/lib/fortressql/data/postgresql.conf:
+#   ssl = on
+#   ssl_pqc_mode = 'hybrid'
+#   ssl_cert_file = '/path/to/server.crt'
+#   ssl_key_file = '/path/to/server.key'
+sudo -u postgres pg_ctl -D /var/lib/fortressql/data start
+
+# 5. Connect with PQC TLS
+psql "host=localhost sslmode=require sslpqcgroups=X25519MLKEM768"
+```
+
+For production setup (TDE, WAL signing, authentication, key management), see the [Administrator's Guide](doc/fortressql-admin-guide.md).
+
 ---
 
 ## Why FortressQL?
@@ -20,6 +82,8 @@
 Quantum computers threaten current cryptographic standards. The **"harvest now, decrypt later"** attack means data encrypted today with classical algorithms can be stored and decrypted once quantum computers mature. NIST has finalized three post-quantum cryptographic standards to address this threat.
 
 FortressQL integrates these standards directly into PostgreSQL, providing quantum-resistant protection across every layer of the database stack.
+
+For a detailed analysis of the threats FortressQL addresses (and does not address), see the [Threat Model](doc/fortressql-threat-model.md).
 
 ## NIST PQC Algorithms
 
@@ -63,8 +127,8 @@ hostssl all all 0.0.0.0/0 pqc-cert
 hostssl all all 0.0.0.0/0 pqc-scram-sha-384
 ```
 
-- **`pqc-cert`** — Verifies client certificates use post-quantum signature algorithms
-- **`pqc-scram-sha-384`** — SCRAM authentication with SHA-384 (48-byte keys)
+- **`pqc-cert`** -- Verifies client certificates use post-quantum signature algorithms
+- **`pqc-scram-sha-384`** -- SCRAM authentication with SHA-384 (48-byte keys)
 
 ### pgcrypto_pqc Extension
 
@@ -263,47 +327,49 @@ primary_conninfo = 'host=primary sslmode=verify-full sslpqcmode=hybrid sslpqcgro
 ### Prerequisites
 
 - **OpenSSL** 3.0 or later (3.5+ recommended for native PQC support)
-- **liboqs** (Open Quantum Safe) — required for PQC features
-- **oqs-provider** — required for PQC TLS on OpenSSL < 3.5
-- Standard PostgreSQL build dependencies
+- **liboqs** (Open Quantum Safe) -- required for PQC features
+- **oqs-provider** -- required for PQC TLS on OpenSSL < 3.5
+- **meson** 1.1+ and **ninja** -- build system
+- Standard PostgreSQL build dependencies (flex, bison, readline, zlib)
 
-### Build liboqs
+### Build on Ubuntu 24.04
 
 ```bash
+# Install dependencies
+sudo apt install -y build-essential meson ninja-build cmake git pkg-config \
+    flex bison libssl-dev libreadline-dev zlib1g-dev libxml2-dev \
+    libxslt1-dev libicu-dev liblz4-dev libzstd-dev python3
+
+# Build liboqs
 git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git
 cd liboqs && mkdir build && cd build
 cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_SHARED_LIBS=ON -DOQS_BUILD_ONLY_LIB=ON ..
 ninja && sudo ninja install && sudo ldconfig
-```
+cd ../..
 
-### Build oqs-provider (OpenSSL < 3.5)
-
-```bash
+# Build oqs-provider (skip if OpenSSL >= 3.5)
 git clone --depth 1 https://github.com/open-quantum-safe/oqs-provider.git
 cd oqs-provider && mkdir build && cd build
 cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr/local -Dliboqs_DIR=/usr/local/lib/cmake/liboqs ..
 ninja && sudo ninja install
-```
+cd ../..
 
-### Build FortressQL
-
-```bash
-# With PQC enabled (default if liboqs is found)
+# Build FortressQL
+cd sql-pqc
 meson setup build -Dssl=openssl -Dpqc=enabled
 meson compile -C build
 sudo meson install -C build
-
-# Without PQC (vanilla PostgreSQL compatible)
-meson setup build -Dssl=openssl -Dpqc=disabled
-meson compile -C build
 ```
+
+For RHEL/Rocky 9 and detailed configuration, see the [Administrator's Guide](doc/fortressql-admin-guide.md).
 
 ### Build Options
 
 | Option | Values | Default | Description |
 |--------|--------|---------|-------------|
 | `-Dpqc` | `enabled`, `disabled`, `auto` | `auto` | PQC support (auto-detects liboqs) |
-| `-Dssl` | `openssl` | — | Required for TLS features |
+| `-Dssl` | `openssl` | -- | Required for TLS features |
+| `-Dcassert` | `true`, `false` | `false` | Enable C assertion checks (testing only) |
 
 ### Run Tests
 
@@ -345,6 +411,8 @@ meson test --suite regress --print-errorlogs # Core regression tests
 | `pqc_audit.enabled` | bool | `off` | Enable hybrid proof logging |
 | `pqc_audit.events` | string | `ddl,auth,policy,grant` | Event categories to audit |
 
+For detailed parameter descriptions, defaults, and recommended values, see the [Administrator's Guide](doc/fortressql-admin-guide.md#postgresqlconf-reference).
+
 ### Client (connection string)
 
 | Parameter | Description |
@@ -365,6 +433,35 @@ meson test --suite regress --print-errorlogs # Core regression tests
 | `--pqc-decrypt-key=FILE` | Recipient's ML-KEM secret key (restore) |
 | `--pqc-verify-key=FILE` | Signer's ML-DSA public key (restore) |
 
+## Documentation
+
+- **[Administrator's Guide](doc/fortressql-admin-guide.md)** -- Installation, configuration, key management, backup, monitoring, and troubleshooting
+- **[Threat Model](doc/fortressql-threat-model.md)** -- Threat landscape, protection matrix, scope boundaries, and compliance mapping (SOC 2, HIPAA, FedRAMP, CMMC)
+
+## Contributing
+
+Contributions are welcome. FortressQL follows the same development practices as PostgreSQL.
+
+### Getting Started
+
+1. Fork the repository and create a feature branch
+2. Build with assertions enabled: `meson setup build -Dpqc=enabled -Dssl=openssl -Dcassert=true`
+3. Run the full test suite: `meson test -C build --print-errorlogs`
+4. Submit a pull request with a clear description of the change
+
+### Guidelines
+
+- All PQC code must be guarded by `#ifdef USE_PQC` so that builds with `-Dpqc=disabled` produce vanilla PostgreSQL binaries
+- New PQC features must include regression tests in the `pqc` test suite
+- Follow PostgreSQL coding conventions (C99, tabs for indentation, comment style)
+- Cryptographic code must use the PQC abstraction layer (`src/common/pqc/`) rather than calling liboqs directly
+- Security-sensitive changes should include a brief threat analysis in the PR description
+- Sensitive key material must be zeroed after use with `explicit_bzero()`
+
+### Reporting Security Issues
+
+If you discover a security vulnerability, please report it privately. Do not open a public issue. Send details to the maintainers via the process described in SECURITY.md.
+
 ## License
 
 FortressQL is released under the [PostgreSQL License](COPYRIGHT), the same permissive open-source license as PostgreSQL.
@@ -374,6 +471,6 @@ Portions Copyright (c) 1996-2026, PostgreSQL Global Development Group
 
 ## Acknowledgments
 
-- [PostgreSQL](https://www.postgresql.org/) — The foundation
-- [Open Quantum Safe (liboqs)](https://openquantumsafe.org/) — PQC algorithm implementations
-- [NIST Post-Quantum Cryptography](https://csrc.nist.gov/projects/post-quantum-cryptography) — Standards
+- [PostgreSQL](https://www.postgresql.org/) -- The foundation
+- [Open Quantum Safe (liboqs)](https://openquantumsafe.org/) -- PQC algorithm implementations
+- [NIST Post-Quantum Cryptography](https://csrc.nist.gov/projects/post-quantum-cryptography) -- Standards

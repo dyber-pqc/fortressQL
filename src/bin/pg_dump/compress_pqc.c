@@ -113,6 +113,34 @@ pqc_encrypt_init(const char *pubkey_path, const char *algorithm)
 		pg_fatal("could not create KEM context for algorithm \"%s\"",
 				 algorithm);
 
+	/* Validate key file is readable and has correct size */
+	{
+		FILE	   *key_fp;
+		long		key_fsize;
+
+		key_fp = fopen(pubkey_path, "rb");
+		if (key_fp == NULL)
+			pg_fatal("could not open PQC public key file \"%s\": %m",
+					 pubkey_path);
+		if (fseek(key_fp, 0, SEEK_END) != 0 || (key_fsize = ftell(key_fp)) < 0)
+		{
+			fclose(key_fp);
+			pg_fatal("could not determine size of PQC public key file \"%s\"",
+					 pubkey_path);
+		}
+		fclose(key_fp);
+
+		if (key_fsize == 0)
+			pg_fatal("PQC public key file \"%s\" is empty", pubkey_path);
+
+		if (state->kem_ctx->public_key_len > 0 &&
+			(size_t) key_fsize != state->kem_ctx->public_key_len)
+			pg_fatal("PQC public key file \"%s\" has wrong size: "
+					 "got %ld bytes, expected %zu for %s",
+					 pubkey_path, key_fsize,
+					 state->kem_ctx->public_key_len, algorithm);
+	}
+
 	/* Load public key */
 	if (pqc_kem_load_public_key(state->kem_ctx, pubkey_path) != 0)
 		pg_fatal("could not load PQC public key from \"%s\"", pubkey_path);
@@ -300,7 +328,9 @@ pqc_decrypt_init(const char *seckey_path, const char *algorithm,
 
 	/* Decapsulate to recover shared secret */
 	if (pqc_kem_decapsulate(state->kem_ctx, ciphertext, ct_len) != 0)
-		pg_fatal("PQC KEM decapsulation failed");
+		pg_fatal("PQC KEM decapsulation failed: the secret key may not match "
+				 "the public key used for encryption, or the encrypted backup "
+				 "header is corrupted");
 
 	/* Derive AES-256 key from shared secret */
 	derive_aes_key(state->kem_ctx->shared_secret,
@@ -373,6 +403,9 @@ pqc_decrypt_data(PqcDecryptorState *state,
 							  pt_buf, &pt_len) != 0)
 	{
 		free(pt_buf);
+		pg_log_error("AES-256-GCM decryption failed at chunk " UINT64_FORMAT ": "
+					 "encrypted backup may be tampered with or wrong key used",
+					 state->chunk_counter - 1);
 		return -1;
 	}
 
@@ -505,12 +538,21 @@ pqc_sign_finish(PqcSignState *state, uint8_t **sig_out, size_t *sig_len)
 
 	/* Finalize the hash */
 	if (EVP_DigestFinal_ex(state->hash_ctx, hash, &hash_len) != 1)
+	{
+		pg_log_error("could not finalize SHA-256 hash for backup signing");
 		return -1;
+	}
 
 	/* Sign the hash */
 	if (pqc_common_sign(state->sig_ctx, hash, hash_len, sig_out, sig_len) != 0)
+	{
+		pg_log_error("PQC signature generation failed for backup: "
+					 "signing key may be corrupted or algorithm mismatch");
+		OQS_MEM_cleanse(hash, SHA256_DIGEST_LENGTH);
 		return -1;
+	}
 
+	OQS_MEM_cleanse(hash, SHA256_DIGEST_LENGTH);
 	return 0;
 }
 
@@ -610,10 +652,22 @@ pqc_verify_finish(PqcVerifyState *state,
 
 	/* Finalize the hash */
 	if (EVP_DigestFinal_ex(state->hash_ctx, hash, &hash_len) != 1)
+	{
+		pg_log_error("could not finalize SHA-256 hash for backup verification");
 		return -1;
+	}
 
 	/* Verify the signature over the hash */
-	return pqc_common_verify(state->sig_ctx, hash, hash_len, sig, sig_len);
+	if (pqc_common_verify(state->sig_ctx, hash, hash_len, sig, sig_len) != 0)
+	{
+		pg_log_error("PQC signature verification failed: backup may have been "
+					 "tampered with, or the wrong verification key was used");
+		OQS_MEM_cleanse(hash, SHA256_DIGEST_LENGTH);
+		return -1;
+	}
+
+	OQS_MEM_cleanse(hash, SHA256_DIGEST_LENGTH);
+	return 0;
 }
 
 /*

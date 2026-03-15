@@ -1,0 +1,103 @@
+-- FortressQL PQC: Compliance reporting regression tests
+-- Tests compliance report generation for SOC2/HIPAA frameworks
+-- and the pg_pqc_compliance_status view.
+-- Requires pgcrypto_pqc extension version 1.3
+CREATE EXTENSION pgcrypto_pqc;
+ALTER EXTENSION pgcrypto_pqc UPDATE TO '1.3';
+-- Initialize audit keys so audit infrastructure is available
+SELECT pqc_audit_init_keys();
+ pqc_audit_init_keys
+---------------------
+
+(1 row)
+
+-- ============================================================
+-- Test 1: SOC2 compliance report
+-- ============================================================
+SELECT report_section, requirement, status
+FROM pqc_audit_compliance_report('SOC2')
+ORDER BY report_section;
+      report_section       |                       requirement                        | status
+---------------------------+----------------------------------------------------------+--------
+ Audit Chain Integrity     | Audit log hash chain must be intact                      | PASS
+ Audit Logging             | Security events must be logged with non-repudiation      | FAIL
+ Cryptographic Policy      | System must enforce post-quantum cryptographic policy    | WARN
+ Encryption at Rest        | Data must be encrypted at rest using approved algorithms | FAIL
+ SOC2 CC6.1 - Logical Access | Encryption controls must protect data confidentiality  | WARN
+ WAL Integrity             | WAL segments must be signed for tamper detection         | FAIL
+(6 rows)
+
+-- ============================================================
+-- Test 2: HIPAA compliance report
+-- ============================================================
+SELECT report_section, requirement, status
+FROM pqc_audit_compliance_report('HIPAA')
+ORDER BY report_section;
+      report_section       |                       requirement                        | status
+---------------------------+----------------------------------------------------------+--------
+ Audit Chain Integrity     | Audit log hash chain must be intact                      | PASS
+ Audit Logging             | Security events must be logged with non-repudiation      | FAIL
+ Cryptographic Policy      | System must enforce post-quantum cryptographic policy    | WARN
+ Encryption at Rest        | Data must be encrypted at rest using approved algorithms | FAIL
+ HIPAA Access Controls     | Access to ePHI must be authenticated and audited         | WARN
+ WAL Integrity             | WAL segments must be signed for tamper detection         | FAIL
+(6 rows)
+
+-- ============================================================
+-- Test 3: Compliance status view
+-- ============================================================
+SELECT
+    crypto_policy IS NOT NULL AS has_crypto_policy,
+    tde_status IS NOT NULL AS has_tde_status,
+    wal_signing_status IS NOT NULL AS has_wal_signing_status,
+    audit_entry_count >= 0 AS has_audit_count,
+    hash_chain_status IN ('INTACT', 'BROKEN', 'N/A') AS valid_chain_status,
+    compliance_readiness IN ('COMPLIANT', 'NOT COMPLIANT') AS valid_readiness
+FROM pg_pqc_compliance_status;
+ has_crypto_policy | has_tde_status | has_wal_signing_status | has_audit_count | valid_chain_status | valid_readiness
+-------------------+----------------+------------------------+-----------------+--------------------+-----------------
+ t                 | t              | t                      | t               | t                  | t
+(1 row)
+
+-- ============================================================
+-- Test 4: Verify report sections are present for SOC2
+-- ============================================================
+DO $$
+DECLARE
+  section_count int;
+BEGIN
+  SELECT count(DISTINCT report_section) INTO section_count
+  FROM pqc_audit_compliance_report('SOC2');
+
+  -- SOC2 should have: Encryption at Rest, Cryptographic Policy,
+  -- WAL Integrity, Audit Logging, Audit Chain Integrity, SOC2 CC6.1
+  IF section_count >= 5 THEN
+    RAISE NOTICE 'SOC2 report sections (% found): PASS', section_count;
+  ELSE
+    RAISE EXCEPTION 'SOC2 report sections: FAIL - expected >= 5, got %', section_count;
+  END IF;
+END $$;
+NOTICE:  SOC2 report sections (6 found): PASS
+-- ============================================================
+-- Test 5: Verify HIPAA-specific section is present
+-- ============================================================
+DO $$
+DECLARE
+  has_hipaa boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM pqc_audit_compliance_report('HIPAA')
+    WHERE report_section = 'HIPAA Access Controls'
+  ) INTO has_hipaa;
+
+  IF has_hipaa THEN
+    RAISE NOTICE 'HIPAA-specific section present: PASS';
+  ELSE
+    RAISE EXCEPTION 'HIPAA-specific section: FAIL - not found';
+  END IF;
+END $$;
+NOTICE:  HIPAA-specific section present: PASS
+-- ============================================================
+-- Cleanup
+-- ============================================================
+DROP EXTENSION pgcrypto_pqc;

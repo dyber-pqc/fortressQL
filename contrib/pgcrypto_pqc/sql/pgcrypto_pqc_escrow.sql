@@ -1,0 +1,135 @@
+-- FortressQL PQC: Shamir's Secret Sharing / key escrow regression tests
+-- Tests escrow share creation, threshold recovery, insufficient shares,
+-- and full-share recovery.
+-- Requires pgcrypto_pqc extension version 1.3
+
+CREATE EXTENSION pgcrypto_pqc;
+ALTER EXTENSION pgcrypto_pqc UPDATE TO '1.3';
+
+-- ============================================================
+-- Test 1: Create escrow with 5 shares, threshold 3
+-- ============================================================
+
+DO $$
+DECLARE
+  share_count int;
+BEGIN
+  SELECT count(*) INTO share_count
+  FROM pqc_escrow_create('test_escrow_key', 5, 3);
+
+  IF share_count = 5 THEN
+    RAISE NOTICE 'Escrow create (5 shares, threshold 3): PASS';
+  ELSE
+    RAISE EXCEPTION 'Escrow create: FAIL - expected 5 shares, got %', share_count;
+  END IF;
+END $$;
+
+-- Verify metadata was stored
+SELECT escrow_name, algorithm, num_shares, threshold
+FROM pqc_escrow_metadata
+WHERE escrow_name = 'test_escrow_key';
+
+-- ============================================================
+-- Test 2: Recover with exactly 3 shares (threshold met)
+-- ============================================================
+
+DO $$
+DECLARE
+  shares bytea[];
+  rec RECORD;
+  recovery RECORD;
+  i int := 0;
+BEGIN
+  -- Collect the first 3 shares
+  FOR rec IN SELECT share_index, share_data
+             FROM pqc_escrow_create('test_recover_3', 5, 3)
+             ORDER BY share_index
+  LOOP
+    i := i + 1;
+    shares := array_append(shares, rec.share_data);
+    EXIT WHEN i >= 3;
+  END LOOP;
+
+  -- Attempt recovery with 3 shares
+  SELECT * INTO recovery FROM pqc_escrow_recover(shares);
+
+  IF recovery.status = 'OK' AND recovery.recovered_key IS NOT NULL THEN
+    RAISE NOTICE 'Recovery with 3 shares (threshold): PASS';
+  ELSE
+    RAISE EXCEPTION 'Recovery with 3 shares: FAIL - status=%', recovery.status;
+  END IF;
+END $$;
+
+-- ============================================================
+-- Test 3: Recover with 2 shares (below threshold, should fail)
+-- ============================================================
+
+DO $$
+DECLARE
+  shares bytea[];
+  rec RECORD;
+  recovery RECORD;
+  i int := 0;
+  failed boolean := false;
+BEGIN
+  -- Collect only 2 shares
+  FOR rec IN SELECT share_index, share_data
+             FROM pqc_escrow_create('test_recover_2', 5, 3)
+             ORDER BY share_index
+  LOOP
+    i := i + 1;
+    shares := array_append(shares, rec.share_data);
+    EXIT WHEN i >= 2;
+  END LOOP;
+
+  -- Attempt recovery with only 2 shares
+  BEGIN
+    SELECT * INTO recovery FROM pqc_escrow_recover(shares);
+    -- If it returns an error status instead of raising an exception
+    IF recovery.status <> 'OK' THEN
+      failed := true;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    failed := true;
+  END;
+
+  IF failed THEN
+    RAISE NOTICE 'Recovery with 2 shares (below threshold): correctly rejected - PASS';
+  ELSE
+    RAISE EXCEPTION 'Recovery with 2 shares: FAIL - should have been rejected';
+  END IF;
+END $$;
+
+-- ============================================================
+-- Test 4: Recover with all 5 shares (above threshold)
+-- ============================================================
+
+DO $$
+DECLARE
+  shares bytea[];
+  rec RECORD;
+  recovery RECORD;
+BEGIN
+  -- Collect all 5 shares
+  FOR rec IN SELECT share_index, share_data
+             FROM pqc_escrow_create('test_recover_all', 5, 3)
+             ORDER BY share_index
+  LOOP
+    shares := array_append(shares, rec.share_data);
+  END LOOP;
+
+  -- Attempt recovery with all 5 shares
+  SELECT * INTO recovery FROM pqc_escrow_recover(shares);
+
+  IF recovery.status = 'OK' AND recovery.recovered_key IS NOT NULL THEN
+    RAISE NOTICE 'Recovery with all 5 shares: PASS';
+  ELSE
+    RAISE EXCEPTION 'Recovery with all 5 shares: FAIL - status=%', recovery.status;
+  END IF;
+END $$;
+
+-- ============================================================
+-- Cleanup
+-- ============================================================
+
+DROP EXTENSION pgcrypto_pqc;
