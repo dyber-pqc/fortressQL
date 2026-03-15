@@ -27,7 +27,14 @@
 #include "crypto/pqc/pqc_common.h"
 #include "crypto/pqc/pqc_wal_keys.h"
 #include "crypto/tde/tde.h"
+#include "libpq/libpq.h"
 #include <sys/stat.h>
+
+#include <openssl/opensslv.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/provider.h>
+#include <openssl/err.h>
+#endif
 
 void
 pqc_preflight_check(void)
@@ -35,9 +42,20 @@ pqc_preflight_check(void)
 	/* Check TDE configuration */
 	if (tde_enabled)
 	{
-		/* Verify master key infrastructure is available */
+		struct stat mk_st;
+		char		mk_path[MAXPGPATH];
+
 		elog(LOG, "FortressQL: TDE enabled, verifying master key configuration");
-		/* Check for master key file or command */
+
+		/* Verify master key file exists */
+		snprintf(mk_path, MAXPGPATH, "%s/global/pg_encryption/master.key", DataDir);
+		if (stat(mk_path, &mk_st) != 0)
+			ereport(WARNING,
+					(errmsg("TDE enabled but master key file not found: %s", mk_path),
+					 errhint("Run pg_tde_master_key init to create the master key.")));
+		else if (mk_st.st_size < (off_t) sizeof(int) * 6)
+			ereport(WARNING,
+					(errmsg("TDE master key file appears truncated: %s", mk_path)));
 	}
 
 	/* Check WAL signing configuration */
@@ -51,7 +69,6 @@ pqc_preflight_check(void)
 		}
 		else
 		{
-			/* Verify key files exist and are readable */
 			struct stat st;
 			char		keypath[MAXPGPATH];
 
@@ -60,8 +77,37 @@ pqc_preflight_check(void)
 				ereport(WARNING,
 						(errmsg("WAL PQC signing enabled but key file not found: %s", keypath),
 						 errhint("Generate keys with pg_tde_master_key or pqc_rotate_wal_signing_keys().")));
+			else if (st.st_size == 0)
+				ereport(WARNING,
+						(errmsg("WAL PQC signing key file is empty: %s", keypath)));
+
+			/* Also check the public key file */
+			snprintf(keypath, MAXPGPATH, "%s/wal_signing.pub", wal_pqc_key_path);
+			if (stat(keypath, &st) != 0)
+				ereport(WARNING,
+						(errmsg("WAL PQC signing enabled but public key file not found: %s", keypath)));
 		}
 	}
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	/* Check if oqs-provider is available for PQC TLS */
+	if (ssl_pqc_mode != PQC_TLS_OFF)
+	{
+		OSSL_PROVIDER *test_prov = OSSL_PROVIDER_load(NULL, "oqsprovider");
+		if (test_prov != NULL)
+		{
+			OSSL_PROVIDER_unload(test_prov);
+			elog(LOG, "FortressQL: oqs-provider available for PQC TLS");
+		}
+		else
+		{
+			ereport(LOG,
+					(errmsg("FortressQL: oqs-provider not found; PQC TLS requires OpenSSL 3.5+ native support"),
+					 errhint("Install oqs-provider or upgrade to OpenSSL 3.5+ for PQC key exchange.")));
+			ERR_clear_error();
+		}
+	}
+#endif
 
 	/* Log PQC subsystem status */
 	elog(LOG, "FortressQL: PQC subsystem initialized (liboqs available: %s)",

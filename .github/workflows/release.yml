@@ -2,42 +2,29 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
 
 jobs:
   release:
+    name: Create Release
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev libreadline-dev zlib1g-dev libicu-dev flex bison python3 python3-pip cmake ninja-build
-          sudo pip3 install --break-system-packages meson
-
-      - name: Build liboqs
-        run: |
-          git clone --depth 1 --branch main https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
-          cd /tmp/liboqs && mkdir build && cd build
-          cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_SHARED_LIBS=ON -DOQS_BUILD_ONLY_LIB=ON ..
-          ninja && sudo ninja install && sudo ldconfig
-
-      - name: Build FortressQL
-        run: |
-          meson setup build --prefix=/usr/local/fortressql -Dssl=openssl -Dpqc=enabled
-          meson compile -C build
-          sudo meson install -C build
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Create source tarball
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          git archive --prefix=fortressql-${VERSION}/ -o fortressql-${VERSION}.tar.gz HEAD
+          VERSION=${GITHUB_REF#refs/tags/}
+          git archive --format=tar.gz --prefix=fortressql-${VERSION}/ \
+            -o fortressql-${VERSION}.tar.gz HEAD
 
-      - name: Create GitHub Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: fortressql-*.tar.gz
           generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
+          files: |
+            fortressql-*.tar.gz

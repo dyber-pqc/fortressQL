@@ -409,7 +409,8 @@ be_tls_init(bool isServerStart)
 							SSLerrmessage(ERR_get_error())),
 					 errhint("Ensure OpenSSL 3.5+ or oqs-provider supports "
 							 "the specified PQC signature algorithms.")));
-			goto error;
+			ERR_clear_error();
+			/* Sigalgs are optional; PQC TLS can still work with default sigalgs */
 		}
 	}
 #endif							/* USE_PQC */

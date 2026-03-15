@@ -43,6 +43,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/kdf.h>
+#include "crypto/tde/tde.h"
 #endif
 
 PG_MODULE_MAGIC;
@@ -2873,17 +2874,17 @@ pqc_rotate_tde_master_key(PG_FUNCTION_ARGS)
 		pqc_init();
 
 	/*
-	 * Re-wrap tablespace keys.  Query the TDE key table to find all
-	 * existing tablespace keys, decrypt them with the old master key,
-	 * generate a new master KEM keypair, and re-encrypt each tablespace
-	 * key with the new master.
+	 * Perform the actual master key rotation.  This generates a new
+	 * master key, writes it to disk, and invalidates the TDEK cache
+	 * so tablespace keys will be re-derived on next access.
 	 */
+	tde_rotate_master_key();
+
+	/* Count tablespace keys that were affected */
 	SPI_connect();
 
-	/* Count tablespace keys that would be rewrapped */
 	ret = SPI_execute(
-		"SELECT count(*) FROM pg_catalog.pg_tablespace "
-		"WHERE spcname NOT IN ('pg_default', 'pg_global')",
+		"SELECT count(*) FROM pg_catalog.pg_tablespace",
 		true, 0);
 
 	if (ret == SPI_OK_SELECT && SPI_processed > 0)
@@ -2894,11 +2895,8 @@ pqc_rotate_tde_master_key(PG_FUNCTION_ARGS)
 		cnt_datum = SPI_getbinval(SPI_tuptable->vals[0],
 								 SPI_tuptable->tupdesc, 1, &isnull);
 		if (!isnull)
-			rewrapped = DatumGetInt32(cnt_datum);
+			rewrapped = DatumGetInt64(cnt_datum);
 	}
-
-	/* Always count at least the default tablespace */
-	rewrapped = rewrapped + 1;
 
 	SPI_finish();
 

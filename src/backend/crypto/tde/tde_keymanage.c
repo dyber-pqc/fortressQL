@@ -346,6 +346,13 @@ tde_write_master_key_file(const uint8 *pubkey, size_t pubkey_len,
 						filepath)));
 	}
 
+	/* fsync to ensure master key is durable before proceeding */
+	if (pg_fsync(fileno(fp)) != 0)
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("TDE: could not fsync master key file \"%s\": %m",
+						filepath)));
+
 	if (FreeFile(fp) != 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -427,6 +434,18 @@ tde_unwrap_master_key(void)
 						hdr.version)));
 	}
 
+	/* Sanity-check variable-length fields to prevent absurd allocations */
+	if (hdr.pubkey_len == 0 || hdr.pubkey_len > 8192 ||
+		hdr.ciphertext_len == 0 || hdr.ciphertext_len > 8192)
+	{
+		FreeFile(fp);
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("TDE: master key file has invalid field sizes: "
+						"pubkey_len=%u, ciphertext_len=%u",
+						hdr.pubkey_len, hdr.ciphertext_len)));
+	}
+
 	/* Read the variable-length fields */
 	pubkey = palloc(hdr.pubkey_len);
 	kem_ct = palloc(hdr.ciphertext_len);
@@ -458,6 +477,12 @@ tde_unwrap_master_key(void)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("TDE: FORTRESSQL_KEM_SECRET_KEY environment variable not set"),
 				 errhint("Set the ML-KEM secret key to unwrap the TDE master key.")));
+
+	/* Validate hex string has even length */
+	if (strlen(seckey_hex) % 2 != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("TDE: FORTRESSQL_KEM_SECRET_KEY has odd-length hex string")));
 
 	/* Decode hex string to binary */
 	seckey_len = strlen(seckey_hex) / 2;

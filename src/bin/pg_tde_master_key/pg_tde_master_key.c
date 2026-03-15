@@ -371,7 +371,16 @@ cmd_rotate(const char *datadir)
 	{
 		old_hdr = (PqcTdeMasterKeyHeader *) old_data;
 		if (old_hdr->magic == PQC_TDE_KEY_MAGIC)
-			rotation_count = old_hdr->rotation_count + 1;
+		{
+			rotation_count = old_hdr->rotation_count;
+			if (rotation_count >= UINT32_MAX - 1)
+			{
+				pg_log_error("rotation count overflow: master key has been rotated too many times");
+				free(old_data);
+				return 1;
+			}
+			rotation_count++;
+		}
 	}
 	if (old_data)
 		free(old_data);
@@ -690,6 +699,12 @@ write_secure_file(const char *path, const void *data, size_t len)
 		pg_log_error("could not write to file \"%s\": %m", path);
 		close(fd);
 		return -1;
+	}
+
+	/* Ensure data is flushed to disk */
+	if (fsync(fd) != 0)
+	{
+		pg_log_warning("could not fsync file \"%s\": %m", path);
 	}
 
 	if (close(fd) != 0)

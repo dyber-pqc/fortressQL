@@ -23,11 +23,16 @@ jobs:
             openssl: system
             pqc: disabled
 
+          - os: macos-14
+            pqc: enabled
+            name: "macOS (PQC enabled)"
+
     steps:
       - name: Checkout FortressQL
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -37,8 +42,19 @@ jobs:
             cmake ninja-build
           sudo pip3 install --break-system-packages meson
 
-      - name: Build and install liboqs
-        if: matrix.pqc == 'enabled'
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3 meson ninja pkg-config bison flex
+          # liboqs from source
+          git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git
+          cd liboqs
+          cmake -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_SHARED_LIBS=ON
+          cmake --build build -j$(sysctl -n hw.logicalcpu)
+          sudo cmake --install build
+
+      - name: Build and install liboqs (Linux)
+        if: matrix.pqc == 'enabled' && runner.os == 'Linux'
         run: |
           git clone --depth 1 --branch main https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
           cd /tmp/liboqs
