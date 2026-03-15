@@ -2,9 +2,10 @@ name: FortressQL PQC CI
 
 on:
   push:
-    branches: [fortressql-main, 'fortressql-*']
+    branches: [main, 'fortressql-*']
   pull_request:
-    branches: [fortressql-main]
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   build-pqc-enabled:
