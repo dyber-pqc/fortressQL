@@ -25,3 +25,8 @@ if icu.found()
 endif
 
 subdir('perl')
+
+# FortressQL PQC / TDE integration tests
+if liboqs.found()
+  subdir('pqc')
+endif

@@ -1,0 +1,233 @@
+-- FortressQL PQC: Stress and bulk operation regression tests
+-- Tests bulk keygen, encrypt/decrypt, sign/verify, and cross-key isolation
+
+CREATE EXTENSION pgcrypto_pqc;
+
+-- ============================================================
+-- Bulk KEM key pair generation (100 pairs)
+-- ============================================================
+
+SELECT count(*) AS keypair_count
+FROM (
+    SELECT pqc_kem_keygen('ML-KEM-768')
+    FROM generate_series(1, 100)
+) sub;
+
+-- ============================================================
+-- Bulk signature key pair generation (100 pairs)
+-- ============================================================
+
+SELECT count(*) AS keypair_count
+FROM (
+    SELECT pqc_sig_keygen('ML-DSA-65')
+    FROM generate_series(1, 100)
+) sub;
+
+-- ============================================================
+-- Bulk encapsulate/decapsulate: verify all 50 shared secrets match
+-- ============================================================
+
+DO $$
+DECLARE
+    i integer;
+    keys RECORD;
+    encap RECORD;
+    recovered bytea;
+    fail_count integer := 0;
+BEGIN
+    FOR i IN 1..50 LOOP
+        SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-768');
+        SELECT * INTO encap FROM pqc_kem_encapsulate(keys.public_key, 'ML-KEM-768');
+        recovered := pqc_kem_decapsulate(encap.ciphertext, keys.secret_key, 'ML-KEM-768');
+
+        IF recovered <> encap.shared_secret THEN
+            fail_count := fail_count + 1;
+        END IF;
+    END LOOP;
+
+    IF fail_count = 0 THEN
+        RAISE NOTICE 'Bulk KEM round-trip (50 iterations): PASS';
+    ELSE
+        RAISE EXCEPTION 'Bulk KEM round-trip: FAIL (% failures)', fail_count;
+    END IF;
+END $$;
+
+-- ============================================================
+-- Bulk hybrid encrypt/decrypt: 50 different messages
+-- ============================================================
+
+DO $$
+DECLARE
+    i integer;
+    enc RECORD;
+    plaintext bytea;
+    decrypted bytea;
+    fail_count integer := 0;
+BEGIN
+    FOR i IN 1..50 LOOP
+        plaintext := convert_to('Message number ' || i::text || ' with unique content ' || md5(i::text), 'UTF8');
+        SELECT * INTO enc FROM pqc_encrypt(plaintext, 'ML-KEM-768');
+        decrypted := pqc_decrypt(enc.encrypted_data, enc.encapsulated_key,
+                                 enc.secret_key, 'ML-KEM-768');
+
+        IF decrypted <> plaintext THEN
+            fail_count := fail_count + 1;
+        END IF;
+    END LOOP;
+
+    IF fail_count = 0 THEN
+        RAISE NOTICE 'Bulk hybrid encrypt/decrypt (50 messages): PASS';
+    ELSE
+        RAISE EXCEPTION 'Bulk hybrid encrypt/decrypt: FAIL (% failures)', fail_count;
+    END IF;
+END $$;
+
+-- ============================================================
+-- Bulk sign/verify: 50 different messages
+-- ============================================================
+
+DO $$
+DECLARE
+    i integer;
+    keys RECORD;
+    sig bytea;
+    msg bytea;
+    valid boolean;
+    fail_count integer := 0;
+BEGIN
+    SELECT * INTO keys FROM pqc_sig_keygen('ML-DSA-65');
+
+    FOR i IN 1..50 LOOP
+        msg := convert_to('Sign message #' || i::text || ': ' || md5(i::text), 'UTF8');
+        sig := pqc_sign(msg, keys.secret_key, 'ML-DSA-65');
+        valid := pqc_verify(msg, sig, keys.public_key, 'ML-DSA-65');
+
+        IF NOT valid THEN
+            fail_count := fail_count + 1;
+        END IF;
+    END LOOP;
+
+    IF fail_count = 0 THEN
+        RAISE NOTICE 'Bulk sign/verify (50 messages, single key): PASS';
+    ELSE
+        RAISE EXCEPTION 'Bulk sign/verify: FAIL (% failures)', fail_count;
+    END IF;
+END $$;
+
+-- ============================================================
+-- Cross-key isolation: key A's encapsulation cannot be
+-- decapsulated with key B to the same shared secret
+-- ============================================================
+
+DO $$
+DECLARE
+    i integer;
+    keys_a RECORD;
+    keys_b RECORD;
+    encap RECORD;
+    recovered_a bytea;
+    recovered_b bytea;
+    isolation_violations integer := 0;
+BEGIN
+    FOR i IN 1..20 LOOP
+        SELECT * INTO keys_a FROM pqc_kem_keygen('ML-KEM-768');
+        SELECT * INTO keys_b FROM pqc_kem_keygen('ML-KEM-768');
+        SELECT * INTO encap FROM pqc_kem_encapsulate(keys_a.public_key, 'ML-KEM-768');
+
+        recovered_a := pqc_kem_decapsulate(encap.ciphertext, keys_a.secret_key, 'ML-KEM-768');
+        recovered_b := pqc_kem_decapsulate(encap.ciphertext, keys_b.secret_key, 'ML-KEM-768');
+
+        IF recovered_a = recovered_b THEN
+            isolation_violations := isolation_violations + 1;
+        END IF;
+    END LOOP;
+
+    IF isolation_violations = 0 THEN
+        RAISE NOTICE 'Cross-key isolation (20 pairs): PASS';
+    ELSE
+        RAISE EXCEPTION 'Cross-key isolation: FAIL (% violations)', isolation_violations;
+    END IF;
+END $$;
+
+-- ============================================================
+-- Cross-key isolation for hybrid encryption
+-- ============================================================
+
+DO $$
+DECLARE
+    enc RECORD;
+    wrong_keys RECORD;
+    plaintext bytea := convert_to('cross-key test data', 'UTF8');
+    decrypted bytea;
+    i integer;
+    reject_count integer := 0;
+BEGIN
+    FOR i IN 1..10 LOOP
+        SELECT * INTO enc FROM pqc_encrypt(plaintext, 'ML-KEM-768');
+        SELECT * INTO wrong_keys FROM pqc_kem_keygen('ML-KEM-768');
+
+        BEGIN
+            decrypted := pqc_decrypt(enc.encrypted_data, enc.encapsulated_key,
+                                     wrong_keys.secret_key, 'ML-KEM-768');
+            -- If we get here without error, that's a problem
+        EXCEPTION WHEN OTHERS THEN
+            reject_count := reject_count + 1;
+        END;
+    END LOOP;
+
+    IF reject_count = 10 THEN
+        RAISE NOTICE 'Hybrid cross-key rejection (10 attempts): PASS';
+    ELSE
+        RAISE EXCEPTION 'Hybrid cross-key rejection: FAIL (only % of 10 rejected)', reject_count;
+    END IF;
+END $$;
+
+-- ============================================================
+-- Cross-key isolation for signatures
+-- ============================================================
+
+DO $$
+DECLARE
+    keys_a RECORD;
+    keys_b RECORD;
+    sig bytea;
+    msg bytea := convert_to('cross-key signature test', 'UTF8');
+    valid boolean;
+    i integer;
+    reject_count integer := 0;
+BEGIN
+    FOR i IN 1..20 LOOP
+        SELECT * INTO keys_a FROM pqc_sig_keygen('ML-DSA-65');
+        SELECT * INTO keys_b FROM pqc_sig_keygen('ML-DSA-65');
+
+        sig := pqc_sign(msg, keys_a.secret_key, 'ML-DSA-65');
+        valid := pqc_verify(msg, sig, keys_b.public_key, 'ML-DSA-65');
+
+        IF NOT valid THEN
+            reject_count := reject_count + 1;
+        END IF;
+    END LOOP;
+
+    IF reject_count = 20 THEN
+        RAISE NOTICE 'Signature cross-key rejection (20 pairs): PASS';
+    ELSE
+        RAISE EXCEPTION 'Signature cross-key rejection: FAIL (only % of 20 rejected)', reject_count;
+    END IF;
+END $$;
+
+-- ============================================================
+-- Bulk keygen via set-returning query with size verification
+-- ============================================================
+
+SELECT
+    count(*) AS total_keys,
+    count(*) FILTER (WHERE pk_len = 1184) AS correct_pk_count,
+    count(*) FILTER (WHERE sk_len = 2400) AS correct_sk_count
+FROM (
+    SELECT
+        length((pqc_kem_keygen('ML-KEM-768')).public_key) AS pk_len,
+        length((pqc_kem_keygen('ML-KEM-768')).secret_key) AS sk_len
+    FROM generate_series(1, 25)
+) sub;
+
+DROP EXTENSION pgcrypto_pqc;

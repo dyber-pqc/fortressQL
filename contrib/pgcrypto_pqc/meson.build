@@ -24,6 +24,10 @@ tests += {
   'regress': {
     'sql': [
       'pgcrypto_pqc',
+      'pgcrypto_pqc_algorithms',
+      'pgcrypto_pqc_security',
+      'pgcrypto_pqc_stress',
+      'pgcrypto_pqc_audit',
     ],
   },
 }

@@ -9,3 +9,17 @@ if liboqs.found()
     'tde_wal.c',
   )
 endif
+
+# TDE TAP tests (benchmark / integration)
+if liboqs.found()
+  tests += {
+    'name': 'tde',
+    'sd': meson.current_source_dir(),
+    'bd': meson.current_build_dir(),
+    'tap': {
+      'tests': [
+        't/001_tde_benchmark.pl',
+      ],
+    },
+  }
+endif

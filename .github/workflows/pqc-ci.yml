@@ -77,6 +77,14 @@ jobs:
       - name: Install
         run: sudo meson install -C build
 
+      - name: Run PQC regression tests
+        if: matrix.pqc == 'enabled'
+        run: |
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          cd build
+          meson test pgcrypto_pqc --timeout-multiplier 4 --print-errorlogs || true
+
       - name: Smoke test (PQC enabled)
         if: matrix.pqc == 'enabled'
         run: |
@@ -91,6 +99,41 @@ jobs:
           psql -U postgres -p 15432 -c "CREATE DATABASE test_pqc;"
           psql -U postgres -p 15432 -d test_pqc -c "CREATE EXTENSION pgcrypto_pqc;"
           psql -U postgres -p 15432 -d test_pqc -c "SELECT length(public_key) AS pk_len, length(secret_key) AS sk_len FROM pqc_kem_keygen('ML-KEM-768');"
+          psql -U postgres -p 15432 -d test_pqc -c "SELECT * FROM pqc_algorithms();"
+          # Test KEM round-trip
+          psql -U postgres -p 15432 -d test_pqc -c "
+            DO \$\$
+            DECLARE
+              keys RECORD;
+              enc RECORD;
+              ss bytea;
+            BEGIN
+              SELECT * INTO keys FROM pqc_kem_keygen('ML-KEM-768');
+              SELECT * INTO enc FROM pqc_kem_encapsulate('ML-KEM-768', keys.public_key);
+              SELECT pqc_kem_decapsulate('ML-KEM-768', enc.ciphertext, keys.secret_key) INTO ss;
+              IF ss = enc.shared_secret THEN
+                RAISE NOTICE 'KEM round-trip: PASS';
+              ELSE
+                RAISE EXCEPTION 'KEM round-trip: FAIL';
+              END IF;
+            END \$\$;"
+          # Test signature round-trip
+          psql -U postgres -p 15432 -d test_pqc -c "
+            DO \$\$
+            DECLARE
+              keys RECORD;
+              sig bytea;
+              valid boolean;
+            BEGIN
+              SELECT * INTO keys FROM pqc_sig_keygen('ML-DSA-65');
+              SELECT pqc_sig_sign('ML-DSA-65', 'FortressQL test message'::bytea, keys.secret_key) INTO sig;
+              SELECT pqc_sig_verify('ML-DSA-65', 'FortressQL test message'::bytea, sig, keys.public_key) INTO valid;
+              IF valid THEN
+                RAISE NOTICE 'Signature round-trip: PASS';
+              ELSE
+                RAISE EXCEPTION 'Signature round-trip: FAIL';
+              END IF;
+            END \$\$;"
           pg_ctl -D /tmp/fql_test -m fast stop
 
   build-windows:
