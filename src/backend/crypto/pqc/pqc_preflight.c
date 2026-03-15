@@ -21,7 +21,9 @@
  */
 #include "postgres.h"
 
+#include "miscadmin.h"
 #include "utils/guc.h"
+#include "utils/guc_hooks.h"
 
 #ifdef USE_PQC
 #include "crypto/pqc/pqc_common.h"

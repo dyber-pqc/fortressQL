@@ -20,6 +20,7 @@
 #include "crypto/pqc/pqc_common.h"
 #include "funcapi.h"
 #include "miscadmin.h"
+#include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "storage/shmem.h"
 #include "utils/builtins.h"
