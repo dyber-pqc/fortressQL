@@ -37,6 +37,7 @@
 #include "crypto/tde/tde_keycache.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
+#include "storage/ipc.h"
 #include "utils/memutils.h"
 
 /* HKDF label for page IV derivation */
@@ -73,10 +74,24 @@ typedef struct MasterKeyFileHeader
 
 /*
  * In-memory master key state.  The decrypted master key is held in
- * backend-local memory and wiped on process exit.
+ * backend-local memory and wiped on process exit via an on_proc_exit
+ * callback to prevent leakage in core dumps.
  */
 static uint8 MasterKey[TDE_AES_KEY_LEN];
 static bool MasterKeyLoaded = false;
+static bool MasterKeyExitRegistered = false;
+
+/*
+ * tde_wipe_master_key_on_exit
+ *
+ * Process-exit callback to securely wipe the master key from memory.
+ */
+static void
+tde_wipe_master_key_on_exit(int code, Datum arg)
+{
+	explicit_bzero(MasterKey, TDE_AES_KEY_LEN);
+	MasterKeyLoaded = false;
+}
 
 /* Forward declarations */
 static void tde_ensure_key_directory(void);
@@ -255,6 +270,13 @@ tde_generate_master_key(void)
 	/* Load the master key into memory */
 	memcpy(MasterKey, raw_master_key, TDE_AES_KEY_LEN);
 	MasterKeyLoaded = true;
+
+	/* Register process-exit wipe callback (once) */
+	if (!MasterKeyExitRegistered)
+	{
+		on_proc_exit(tde_wipe_master_key_on_exit, 0);
+		MasterKeyExitRegistered = true;
+	}
 
 	/*
 	 * IMPORTANT: The secret key must be exported to the administrator
@@ -513,6 +535,13 @@ tde_unwrap_master_key(void)
 
 	MasterKeyLoaded = true;
 
+	/* Register process-exit wipe callback (once) */
+	if (!MasterKeyExitRegistered)
+	{
+		on_proc_exit(tde_wipe_master_key_on_exit, 0);
+		MasterKeyExitRegistered = true;
+	}
+
 	ereport(LOG,
 			(errmsg("TDE: master key successfully unwrapped")));
 }
@@ -551,8 +580,9 @@ tde_generate_tablespace_key(Oid spcOid)
 
 	tde_keycache_insert(&entry);
 
-	/* Wipe the local copy */
+	/* Wipe local copies of key material */
 	explicit_bzero(tdek, TDE_AES_KEY_LEN);
+	explicit_bzero(&entry, sizeof(entry));
 
 	ereport(LOG,
 			(errmsg("TDE: generated new encryption key for tablespace %u",
@@ -566,29 +596,47 @@ tde_generate_tablespace_key(Oid spcOid)
  * new master key.  This does NOT re-encrypt data pages; it only changes
  * the master key that protects the TDEKs.
  *
- * Steps:
- *   1. Generate new ML-KEM-768 key pair and encapsulate new master key
- *   2. Invalidate the key cache (forces re-load)
- *   3. Write new master key file
- *   4. Log completion
+ * IMPORTANT: The new key is generated and written to disk BEFORE the
+ * old key is wiped and the cache is invalidated.  This ensures that
+ * a failure during key generation does not leave the system in an
+ * unrecoverable state with both old and new keys lost.
  */
 void
 tde_rotate_master_key(void)
 {
+	uint8		old_master_key[TDE_AES_KEY_LEN];
+
 	if (!MasterKeyLoaded)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("TDE: cannot rotate master key - current key not loaded")));
 
-	/* Invalidate the cache so backends re-fetch keys */
+	/* Save old master key so we can restore on failure */
+	memcpy(old_master_key, MasterKey, TDE_AES_KEY_LEN);
+
+	/*
+	 * Generate the new master key first.  This writes the new key file
+	 * and loads the new key into MasterKey.  If this fails, we restore
+	 * the old key — the system remains in a working state.
+	 */
+	PG_TRY();
+	{
+		tde_generate_master_key();
+	}
+	PG_CATCH();
+	{
+		/* Restore old master key on failure */
+		memcpy(MasterKey, old_master_key, TDE_AES_KEY_LEN);
+		MasterKeyLoaded = true;
+		explicit_bzero(old_master_key, TDE_AES_KEY_LEN);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	/* New key is safely on disk — now invalidate the TDEK cache */
 	tde_keycache_invalidate();
 
-	/* Wipe current master key */
-	explicit_bzero(MasterKey, TDE_AES_KEY_LEN);
-	MasterKeyLoaded = false;
-
-	/* Generate a fresh master key (writes new file) */
-	tde_generate_master_key();
+	explicit_bzero(old_master_key, TDE_AES_KEY_LEN);
 
 	ereport(LOG,
 			(errmsg("TDE: master key rotation complete")));

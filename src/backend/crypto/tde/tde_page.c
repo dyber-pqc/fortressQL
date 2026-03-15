@@ -52,7 +52,7 @@ tde_page_crypt(Page page, Size pageSize,
 			   ForkNumber forkNum,
 			   BlockNumber blockNum)
 {
-	TdeKeyEntry *entry;
+	TdeKeyEntry entry;
 	uint8		iv[TDE_IV_LEN];
 	EVP_CIPHER_CTX *ctx;
 	int			outlen;
@@ -66,9 +66,12 @@ tde_page_crypt(Page page, Size pageSize,
 				 errmsg("TDE: page size %zu is too small for encryption",
 						(size_t) pageSize)));
 
-	/* Look up the tablespace data encryption key */
-	entry = tde_keycache_lookup(spcOid);
-	if (entry == NULL)
+	/*
+	 * Look up the tablespace data encryption key.  The key is copied into
+	 * our local entry while the cache lock is held, preventing a concurrent
+	 * invalidation from wiping the key mid-use.
+	 */
+	if (!tde_keycache_lookup(spcOid, &entry))
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("TDE: no encryption key found for tablespace %u",
@@ -76,20 +79,24 @@ tde_page_crypt(Page page, Size pageSize,
 				 errhint("Ensure TDE is configured for this tablespace.")));
 
 	/* Derive a per-page IV via HKDF */
-	tde_derive_page_iv(entry->key, spcOid, dbOid, relNumber,
+	tde_derive_page_iv(entry.key, spcOid, dbOid, relNumber,
 					   forkNum, blockNum, iv);
 
 	/* Set up AES-256-CTR context */
 	ctx = EVP_CIPHER_CTX_new();
 	if (ctx == NULL)
+	{
+		explicit_bzero(&entry, sizeof(entry));
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("TDE: failed to allocate cipher context")));
+	}
 
 	if (EVP_EncryptInit_ex(ctx, EVP_aes_256_ctr(), NULL,
-						   entry->key, iv) != 1)
+						   entry.key, iv) != 1)
 	{
 		EVP_CIPHER_CTX_free(ctx);
+		explicit_bzero(&entry, sizeof(entry));
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("TDE: failed to initialize AES-256-CTR for page "
@@ -104,6 +111,7 @@ tde_page_crypt(Page page, Size pageSize,
 	if (EVP_EncryptUpdate(ctx, payload, &outlen, payload, payload_len) != 1)
 	{
 		EVP_CIPHER_CTX_free(ctx);
+		explicit_bzero(&entry, sizeof(entry));
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("TDE: AES-256-CTR encryption/decryption failed for page "
@@ -118,6 +126,7 @@ tde_page_crypt(Page page, Size pageSize,
 	if (EVP_EncryptFinal_ex(ctx, payload + outlen, &outlen) != 1)
 	{
 		EVP_CIPHER_CTX_free(ctx);
+		explicit_bzero(&entry, sizeof(entry));
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("TDE: AES-256-CTR finalization failed for page "
@@ -126,6 +135,10 @@ tde_page_crypt(Page page, Size pageSize,
 	}
 
 	EVP_CIPHER_CTX_free(ctx);
+
+	/* Wipe the local copy of key material */
+	explicit_bzero(&entry, sizeof(entry));
+	explicit_bzero(iv, sizeof(iv));
 }
 
 /*
@@ -133,10 +146,9 @@ tde_page_crypt(Page page, Size pageSize,
  *
  * Encrypt a data page in-place before writing to disk.
  *
- * If OpenSSL returns an error, we log which page failed and return the
- * original unencrypted page rather than crashing the server.  The page
- * will be written in cleartext, which is a security degradation but
- * preferable to a server crash.
+ * Encryption failure is treated as FATAL: writing plaintext to disk when
+ * TDE is enabled would silently violate the confidentiality guarantee.
+ * It is better to halt the server than to leak data.
  */
 void
 tde_encrypt_page(Page page, Size pageSize,
@@ -153,16 +165,18 @@ tde_encrypt_page(Page page, Size pageSize,
 	PG_CATCH();
 	{
 		/*
-		 * Log the failure with page identity but don't crash.  The page
-		 * will be written unencrypted.
+		 * Encryption failed.  We must NOT write plaintext to disk.
+		 * Escalate to PANIC to force a crash-recovery cycle rather
+		 * than silently persisting unencrypted data.
 		 */
 		EmitErrorReport();
 		FlushErrorState();
-		ereport(WARNING,
+		ereport(PANIC,
 				(errmsg("TDE: encryption failed for page "
-						"(spc=%u, db=%u, rel=%u, blk=%u), "
-						"writing page unencrypted",
-						spcOid, dbOid, relNumber, blockNum)));
+						"(spc=%u, db=%u, rel=%u, blk=%u); "
+						"refusing to write unencrypted data to disk",
+						spcOid, dbOid, relNumber, blockNum),
+				 errhint("Check OpenSSL status and TDE key availability.")));
 	}
 	PG_END_TRY();
 }

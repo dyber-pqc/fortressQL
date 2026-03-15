@@ -102,7 +102,14 @@ pqc_sig_keygen(PqcSigContext *ctx,
 			   uint8 **public_key, size_t *public_key_len,
 			   uint8 **secret_key, size_t *secret_key_len)
 {
-	OQS_SIG    *sig = ctx->oqs_sig;
+	OQS_SIG    *sig;
+
+	if (ctx == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("pqc_sig_keygen: NULL context")));
+
+	sig = ctx->oqs_sig;
 
 	*public_key_len = sig->length_public_key;
 	*secret_key_len = sig->length_secret_key;
@@ -132,7 +139,19 @@ pqc_sig_sign(PqcSigContext *ctx,
 			 const uint8 *secret_key, size_t secret_key_len,
 			 uint8 **signature, size_t *signature_len)
 {
-	OQS_SIG    *sig = ctx->oqs_sig;
+	OQS_SIG    *sig;
+
+	if (ctx == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("pqc_sig_sign: NULL context")));
+
+	if (message == NULL && message_len > 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("pqc_sig_sign: NULL message with non-zero length")));
+
+	sig = ctx->oqs_sig;
 
 	/* Validate secret key length */
 	if (secret_key_len != sig->length_secret_key)
@@ -173,7 +192,19 @@ pqc_sig_verify(PqcSigContext *ctx,
 			   const uint8 *signature, size_t signature_len,
 			   const uint8 *public_key, size_t public_key_len)
 {
-	OQS_SIG    *sig = ctx->oqs_sig;
+	OQS_SIG    *sig;
+
+	if (ctx == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("pqc_sig_verify: NULL context")));
+
+	if (message == NULL && message_len > 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("pqc_sig_verify: NULL message with non-zero length")));
+
+	sig = ctx->oqs_sig;
 
 	/* Validate public key length */
 	if (public_key_len != sig->length_public_key)

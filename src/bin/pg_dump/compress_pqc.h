@@ -80,14 +80,16 @@ extern int	pqc_encrypt_data(PqcEncryptorState *state,
 							 uint8_t **output, size_t *output_len);
 extern int	pqc_encrypt_finish(PqcEncryptorState *state,
 							   uint8_t **kem_ciphertext,
-							   size_t *kem_ct_len);
+							   size_t *kem_ct_len,
+							   uint8_t *base_iv_out);
 extern void pqc_encrypt_free(PqcEncryptorState *state);
 
 /* Decryption functions */
 extern PqcDecryptorState *pqc_decrypt_init(const char *seckey_path,
 										   const char *algorithm,
 										   const uint8_t *ciphertext,
-										   size_t ct_len);
+										   size_t ct_len,
+										   const uint8_t *base_iv);
 extern int	pqc_decrypt_data(PqcDecryptorState *state,
 							 const uint8_t *input, size_t input_len,
 							 uint8_t **output, size_t *output_len);

@@ -222,6 +222,12 @@ pg_stat_get_pqc(PG_FUNCTION_ARGS)
 Datum
 pg_stat_reset_pqc(PG_FUNCTION_ARGS)
 {
+	/* Only superusers can reset PQC statistics */
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to reset PQC statistics")));
+
 	if (pqc_stat_counters != NULL)
 	{
 		pg_atomic_write_u64(&pqc_stat_counters->kem_encaps_count, 0);

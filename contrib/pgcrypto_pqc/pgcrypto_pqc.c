@@ -924,20 +924,20 @@ load_audit_key(const char *purpose,
 			   uint8 **out_public_key, size_t *out_pk_len,
 			   uint8 **out_secret_key, size_t *out_sk_len)
 {
-	StringInfoData query;
 	int			ret;
 	bool		found = false;
+	Oid			argtypes[1] = {TEXTOID};
+	Datum		argvals[1];
 
-	initStringInfo(&query);
-	appendStringInfo(&query,
-					 "SELECT algorithm, public_key, encrypted_secret_key "
-					 "FROM pqc_audit_keys "
-					 "WHERE key_purpose = '%s' AND is_active = true "
-					 "ORDER BY key_id DESC LIMIT 1",
-					 purpose);
+	/* Use parameterized query to prevent SQL injection */
+	argvals[0] = CStringGetTextDatum(purpose);
 
-	ret = SPI_execute(query.data, true, 1);
-	pfree(query.data);
+	ret = SPI_execute_with_args(
+		"SELECT algorithm, public_key, encrypted_secret_key "
+		"FROM pqc_audit_keys "
+		"WHERE key_purpose = $1 AND is_active = true "
+		"ORDER BY key_id DESC LIMIT 1",
+		1, argtypes, argvals, NULL, true, 1);
 
 	if (ret == SPI_OK_SELECT && SPI_processed > 0)
 	{
@@ -1093,12 +1093,39 @@ audit_log_ddl_event(const char *event_type,
 	user_name = GetUserNameFromId(user_id, false);
 	db_name = get_database_name(MyDatabaseId);
 
-	/* Build event detail as JSON string */
-	initStringInfo(&event_json);
-	appendStringInfo(&event_json,
-					 "{\"object\": \"%s\", \"query\": \"%s\"}",
-					 object_name ? object_name : "",
-					 query_string ? query_string : "");
+	/*
+	 * Build event detail as JSON with proper escaping to prevent
+	 * JSON injection from crafted object names or query strings.
+	 * Use SPI to call jsonb_build_object() safely.
+	 */
+	{
+		Oid			argtypes_json[2] = {TEXTOID, TEXTOID};
+		Datum		argvals_json[2];
+		int			json_ret;
+
+		argvals_json[0] = CStringGetTextDatum(object_name ? object_name : "");
+		argvals_json[1] = CStringGetTextDatum(query_string ? query_string : "");
+
+		json_ret = SPI_execute_with_args(
+			"SELECT jsonb_build_object('object', $1, 'query', $2)::text",
+			2, argtypes_json, argvals_json, NULL, true, 1);
+
+		initStringInfo(&event_json);
+		if (json_ret == SPI_OK_SELECT && SPI_processed > 0)
+		{
+			bool		isnull;
+			Datum		d = SPI_getbinval(SPI_tuptable->vals[0],
+										 SPI_tuptable->tupdesc, 1, &isnull);
+
+			if (!isnull)
+				appendStringInfoString(&event_json,
+									   TextDatumGetCString(d));
+			else
+				appendStringInfoString(&event_json, "{}");
+		}
+		else
+			appendStringInfoString(&event_json, "{}");
+	}
 
 	/* Compute message hash for signing (SHA-384 of event detail) */
 	message_hash = compute_sha384((uint8 *) event_json.data,

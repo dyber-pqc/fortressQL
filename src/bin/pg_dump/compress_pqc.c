@@ -252,7 +252,8 @@ pqc_encrypt_data(PqcEncryptorState *state,
  */
 int
 pqc_encrypt_finish(PqcEncryptorState *state,
-				   uint8_t **kem_ciphertext, size_t *kem_ct_len)
+				   uint8_t **kem_ciphertext, size_t *kem_ct_len,
+				   uint8_t *base_iv_out)
 {
 	if (state == NULL || state->kem_ctx == NULL)
 		return -1;
@@ -264,6 +265,10 @@ pqc_encrypt_finish(PqcEncryptorState *state,
 		return -1;
 
 	memcpy(*kem_ciphertext, state->kem_ctx->ciphertext, *kem_ct_len);
+
+	/* Return the base IV so it can be stored in the archive header */
+	memcpy(base_iv_out, state->aes_iv, PQC_AES_IV_LEN);
+
 	return 0;
 }
 
@@ -307,7 +312,8 @@ pqc_encrypt_free(PqcEncryptorState *state)
  */
 PqcDecryptorState *
 pqc_decrypt_init(const char *seckey_path, const char *algorithm,
-				 const uint8_t *ciphertext, size_t ct_len)
+				 const uint8_t *ciphertext, size_t ct_len,
+				 const uint8_t *base_iv)
 {
 	PqcDecryptorState *state;
 
@@ -315,6 +321,12 @@ pqc_decrypt_init(const char *seckey_path, const char *algorithm,
 	if (state == NULL)
 		pg_fatal("out of memory");
 	memset(state, 0, sizeof(PqcDecryptorState));
+
+	/* Copy the base IV from the archive header */
+	if (base_iv != NULL)
+		memcpy(state->aes_iv, base_iv, PQC_AES_IV_LEN);
+	else
+		pg_fatal("PQC decryption requires the base IV from the archive header");
 
 	/* Create KEM context */
 	state->kem_ctx = pqc_kem_ctx_new(algorithm);

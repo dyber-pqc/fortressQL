@@ -43,15 +43,24 @@ pqc_preflight_check(void)
 	/* Check WAL signing configuration */
 	if (wal_pqc_signing)
 	{
-		/* Verify key files exist and are readable */
-		struct stat st;
-		char		keypath[MAXPGPATH];
-
-		snprintf(keypath, MAXPGPATH, "%s/wal_signing.key", wal_pqc_key_path);
-		if (stat(keypath, &st) != 0)
+		if (wal_pqc_key_path == NULL || wal_pqc_key_path[0] == '\0')
+		{
 			ereport(WARNING,
-					(errmsg("WAL PQC signing enabled but key file not found: %s", keypath),
-					 errhint("Generate keys with pg_tde_master_key or pqc_rotate_wal_signing_keys().")));
+					(errmsg("WAL PQC signing enabled but wal_pqc_key_path is not set"),
+					 errhint("Set wal_pqc_key_path to the directory containing signing keys.")));
+		}
+		else
+		{
+			/* Verify key files exist and are readable */
+			struct stat st;
+			char		keypath[MAXPGPATH];
+
+			snprintf(keypath, MAXPGPATH, "%s/wal_signing.key", wal_pqc_key_path);
+			if (stat(keypath, &st) != 0)
+				ereport(WARNING,
+						(errmsg("WAL PQC signing enabled but key file not found: %s", keypath),
+						 errhint("Generate keys with pg_tde_master_key or pqc_rotate_wal_signing_keys().")));
+		}
 	}
 
 	/* Log PQC subsystem status */

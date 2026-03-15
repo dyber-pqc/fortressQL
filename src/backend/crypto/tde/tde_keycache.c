@@ -94,11 +94,11 @@ tde_keycache_init(void)
  * Takes a shared (read) lock, so multiple backends can look up keys
  * concurrently.
  */
-TdeKeyEntry *
-tde_keycache_lookup(Oid spcOid)
+bool
+tde_keycache_lookup(Oid spcOid, TdeKeyEntry *entry_out)
 {
 	int			i;
-	TdeKeyEntry *result = NULL;
+	bool		found = false;
 
 	if (TdeKeyCacheShmem == NULL)
 		ereport(ERROR,
@@ -113,14 +113,16 @@ tde_keycache_lookup(Oid spcOid)
 
 		if (entry->spc_oid == spcOid && entry->active)
 		{
-			result = entry;
+			/* Copy key material under the lock to prevent use-after-release */
+			memcpy(entry_out, entry, sizeof(TdeKeyEntry));
+			found = true;
 			break;
 		}
 	}
 
 	LWLockRelease(&TdeKeyCacheShmem->lock);
 
-	return result;
+	return found;
 }
 
 /*

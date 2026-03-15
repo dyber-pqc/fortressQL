@@ -2355,7 +2355,7 @@ XLogPqcSignSegment(XLogSegNo segno, TimeLineID tli)
 	sig_buf = (uint8 *) palloc(max_sig_len);
 
 	/* Sign the segment data */
-	rc = pqc_wal_sign_data(seg_data, seg_len, sig_buf, &sig_len);
+	rc = pqc_wal_sign_data(seg_data, seg_len, sig_buf, max_sig_len, &sig_len);
 	pfree(seg_data);
 
 	if (rc != 0)

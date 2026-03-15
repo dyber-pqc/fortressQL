@@ -101,7 +101,14 @@ pqc_kem_keygen(PqcKemContext *ctx,
 			   uint8 **public_key, size_t *public_key_len,
 			   uint8 **secret_key, size_t *secret_key_len)
 {
-	OQS_KEM    *kem = ctx->oqs_kem;
+	OQS_KEM    *kem;
+
+	if (ctx == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("pqc_kem_keygen: NULL context")));
+
+	kem = ctx->oqs_kem;
 
 	*public_key_len = kem->length_public_key;
 	*secret_key_len = kem->length_secret_key;
@@ -131,7 +138,19 @@ pqc_kem_encaps(PqcKemContext *ctx,
 			   uint8 **ciphertext, size_t *ciphertext_len,
 			   uint8 **shared_secret, size_t *shared_secret_len)
 {
-	OQS_KEM    *kem = ctx->oqs_kem;
+	OQS_KEM    *kem;
+
+	if (ctx == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("pqc_kem_encaps: NULL context")));
+
+	if (public_key == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("pqc_kem_encaps: NULL public key")));
+
+	kem = ctx->oqs_kem;
 
 	/* Validate public key length */
 	if (public_key_len != kem->length_public_key)
@@ -171,7 +190,19 @@ pqc_kem_decaps(PqcKemContext *ctx,
 			   const uint8 *secret_key, size_t secret_key_len,
 			   uint8 **shared_secret, size_t *shared_secret_len)
 {
-	OQS_KEM    *kem = ctx->oqs_kem;
+	OQS_KEM    *kem;
+
+	if (ctx == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("pqc_kem_decaps: NULL context")));
+
+	if (ciphertext == NULL || secret_key == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("pqc_kem_decaps: NULL ciphertext or secret key")));
+
+	kem = ctx->oqs_kem;
 
 	/* Validate input lengths */
 	if (ciphertext_len != kem->length_ciphertext)

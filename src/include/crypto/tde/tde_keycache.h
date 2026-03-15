@@ -56,14 +56,15 @@ extern void tde_keycache_init(void);
 /*
  * tde_keycache_lookup
  *
- * Look up the active TDEK for the given tablespace OID.  Returns a
- * pointer to the TdeKeyEntry on hit, or NULL on miss.  The caller must
- * not modify or free the returned entry.
+ * Look up the active TDEK for the given tablespace OID.  Copies the key
+ * entry into the caller-provided buffer while holding the cache lock,
+ * ensuring the key material cannot be invalidated mid-use.
  *
+ * Returns true on hit (entry_out is filled), false on miss.
  * On cache miss, the caller is responsible for loading the key via the
  * key management layer and inserting it into the cache.
  */
-extern TdeKeyEntry *tde_keycache_lookup(Oid spcOid);
+extern bool tde_keycache_lookup(Oid spcOid, TdeKeyEntry *entry_out);
 
 /*
  * tde_keycache_insert

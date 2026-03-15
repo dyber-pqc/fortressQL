@@ -224,6 +224,12 @@ scram_get_mechanisms(Port *port, StringInfo buf)
 #endif
 		appendStringInfoString(buf, SCRAM_SHA_384_NAME);
 		appendStringInfoChar(buf, '\0');
+
+		/*
+		 * When pqc-scram-sha-384 is configured, do NOT advertise
+		 * SCRAM-SHA-256 to prevent downgrade attacks.
+		 */
+		return;
 	}
 #endif							/* USE_PQC */
 
@@ -288,6 +294,19 @@ scram_init(Port *port, const char *selected_mech, const char *shadow_pass)
 		state->channel_binding_in_use = false;
 		state->hash_type = PG_SHA384;
 		state->key_length = SCRAM_SHA_384_KEY_LEN;
+	}
+	else if (port->hba->auth_method == uaPQCSCRAM)
+	{
+		/*
+		 * Prevent downgrade: when pqc-scram-sha-384 is configured,
+		 * reject SCRAM-SHA-256 to prevent a MITM from stripping the
+		 * SHA-384 mechanism from the server's list.
+		 */
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("client must use SCRAM-SHA-384 when pqc-scram-sha-384 authentication is required"),
+				 errdetail("Client selected \"%s\" but only SCRAM-SHA-384 is accepted.",
+						   selected_mech)));
 	}
 	else
 #endif							/* USE_PQC */

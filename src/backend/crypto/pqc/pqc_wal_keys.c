@@ -20,6 +20,7 @@
 
 #ifdef USE_PQC
 
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -79,20 +80,10 @@ read_key_file(const char *filepath, size_t *len)
 	uint8	   *buf;
 	size_t		nread;
 
-	if (stat(filepath, &st) != 0)
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not stat WAL signing key file \"%s\": %m",
-						filepath)));
-
-	*len = (size_t) st.st_size;
-	if (*len == 0)
-		ereport(ERROR,
-				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("WAL signing key file \"%s\" is empty", filepath)));
-
-	buf = (uint8 *) palloc(*len);
-
+	/*
+	 * Open file first, then fstat the file descriptor to avoid TOCTOU
+	 * race between stat() and open().
+	 */
 	fp = AllocateFile(filepath, "rb");
 	if (fp == NULL)
 		ereport(ERROR,
@@ -100,12 +91,46 @@ read_key_file(const char *filepath, size_t *len)
 				 errmsg("could not open WAL signing key file \"%s\": %m",
 						filepath)));
 
+	if (fstat(fileno(fp), &st) != 0)
+	{
+		FreeFile(fp);
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not stat WAL signing key file \"%s\": %m",
+						filepath)));
+	}
+
+	*len = (size_t) st.st_size;
+	if (*len == 0)
+	{
+		FreeFile(fp);
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("WAL signing key file \"%s\" is empty", filepath)));
+	}
+
+	/* Sanity check: PQC keys should never exceed 100KB */
+	if (*len > 102400)
+	{
+		FreeFile(fp);
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("WAL signing key file \"%s\" is unreasonably large: %zu bytes",
+						filepath, *len)));
+	}
+
+	buf = (uint8 *) palloc(*len);
+
 	nread = fread(buf, 1, *len, fp);
 	if (nread != *len)
+	{
+		pfree(buf);
+		FreeFile(fp);
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not read WAL signing key file \"%s\": %m",
 						filepath)));
+	}
 
 	FreeFile(fp);
 	return buf;
@@ -118,36 +143,57 @@ static void
 write_key_file(const char *filepath, const uint8 *data, size_t len,
 			   int filemode)
 {
+	int			fd;
 	FILE	   *fp;
 	size_t		nwritten;
 
-	fp = AllocateFile(filepath, "wb");
-	if (fp == NULL)
+	/*
+	 * Open with restrictive permissions from the start to prevent a
+	 * race window where the secret key file is world-readable.
+	 */
+#ifndef WIN32
+	fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, filemode);
+#else
+	fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+#endif
+	if (fd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not create WAL signing key file \"%s\": %m",
 						filepath)));
 
+	fp = fdopen(fd, "wb");
+	if (fp == NULL)
+	{
+		close(fd);
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not fdopen WAL signing key file \"%s\": %m",
+						filepath)));
+	}
+
 	nwritten = fwrite(data, 1, len, fp);
 	if (nwritten != len)
+	{
+		fclose(fp);
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not write WAL signing key file \"%s\": %m",
 						filepath)));
+	}
 
-	if (FreeFile(fp) != 0)
+	/* fsync to ensure key data is persisted to disk */
+	if (fsync(fileno(fp)) != 0)
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("could not fsync WAL signing key file \"%s\": %m",
+						filepath)));
+
+	if (fclose(fp) != 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not close WAL signing key file \"%s\": %m",
 						filepath)));
-
-#ifndef WIN32
-	if (chmod(filepath, filemode) != 0)
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not set permissions on \"%s\": %m",
-						filepath)));
-#endif
 }
 
 /*
@@ -335,7 +381,8 @@ pqc_wal_generate_signing_keys(const char *key_path, const char *algorithm)
  */
 int
 pqc_wal_sign_data(const uint8 *data, size_t data_len,
-				  uint8 *sig_out, size_t *sig_len)
+				  uint8 *sig_out, size_t sig_out_buflen,
+				  size_t *sig_len)
 {
 	PqcSigContext *ctx;
 	PqcStatus	status;
@@ -369,6 +416,16 @@ pqc_wal_sign_data(const uint8 *data, size_t data_len,
 				(errmsg("PQC WAL segment signing produced empty signature")));
 		if (sig)
 			pfree(sig);
+		return -1;
+	}
+
+	/* Prevent buffer overflow: verify output buffer is large enough */
+	if (actual_sig_len > sig_out_buflen)
+	{
+		ereport(WARNING,
+				(errmsg("PQC WAL signature length %zu exceeds buffer size %zu",
+						actual_sig_len, sig_out_buflen)));
+		pfree(sig);
 		return -1;
 	}
 

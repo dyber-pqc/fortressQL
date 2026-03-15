@@ -61,7 +61,8 @@ extern void pqc_wal_generate_signing_keys(const char *key_path,
  * Returns 0 on success, -1 on failure.
  */
 extern int	pqc_wal_sign_data(const uint8 *data, size_t data_len,
-							  uint8 *sig_out, size_t *sig_len);
+							  uint8 *sig_out, size_t sig_out_buflen,
+							  size_t *sig_len);
 
 /*
  * Verify data against a signature using an externally provided
