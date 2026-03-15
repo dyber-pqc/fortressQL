@@ -2,7 +2,15 @@
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#0a1628"/>
-      <stop offset="100%" stop-color="#1a3a2a"/>
+      <stop offset="100%" stop-color="#111d35"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a5568"/>
+      <stop offset="100%" stop-color="#2d3748"/>
+    </linearGradient>
+    <linearGradient id="tower" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5a6a7e"/>
+      <stop offset="100%" stop-color="#3a4a5e"/>
     </linearGradient>
     <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#2dd4a8"/>
@@ -11,14 +19,6 @@
     <linearGradient id="key" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#fbbf24"/>
       <stop offset="100%" stop-color="#f59e0b"/>
-    </linearGradient>
-    <linearGradient id="tree1" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#166534"/>
-      <stop offset="100%" stop-color="#14532d"/>
-    </linearGradient>
-    <linearGradient id="tree2" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#15803d"/>
-      <stop offset="100%" stop-color="#166534"/>
     </linearGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="3" result="blur"/>
@@ -32,87 +32,110 @@
   <!-- Background circle -->
   <circle cx="256" cy="256" r="250" fill="url(#sky)" stroke="#2dd4a8" stroke-width="4"/>
 
-  <!-- Forest - Back row of trees -->
-  <!-- Tree far left -->
-  <polygon points="80,340 105,240 130,340" fill="url(#tree1)" opacity="0.6"/>
-  <polygon points="85,300 105,220 125,300" fill="url(#tree1)" opacity="0.5"/>
+  <!-- Fortress base / ground -->
+  <rect x="100" y="330" width="312" height="60" rx="3" fill="url(#wall)" opacity="0.9"/>
 
-  <!-- Tree left-center back -->
-  <polygon points="140,340 170,210 200,340" fill="url(#tree1)" opacity="0.7"/>
-  <polygon points="148,280 170,190 192,280" fill="url(#tree1)" opacity="0.6"/>
+  <!-- Fortress main wall -->
+  <rect x="130" y="220" width="252" height="115" fill="url(#wall)" stroke="#5a6a7e" stroke-width="1"/>
 
-  <!-- Tree right-center back -->
-  <polygon points="310,340 340,210 370,340" fill="url(#tree1)" opacity="0.7"/>
-  <polygon points="318,280 340,190 362,280" fill="url(#tree1)" opacity="0.6"/>
+  <!-- Battlements (crenellations) on main wall -->
+  <rect x="130" y="208" width="28" height="16" fill="url(#wall)"/>
+  <rect x="172" y="208" width="28" height="16" fill="url(#wall)"/>
+  <rect x="214" y="208" width="28" height="16" fill="url(#wall)"/>
+  <rect x="256" y="208" width="28" height="16" fill="url(#wall)"/>
+  <rect x="298" y="208" width="28" height="16" fill="url(#wall)"/>
+  <rect x="340" y="208" width="28" height="16" fill="url(#wall)"/>
 
-  <!-- Tree far right -->
-  <polygon points="380,340 405,240 430,340" fill="url(#tree1)" opacity="0.6"/>
-  <polygon points="385,300 405,220 425,300" fill="url(#tree1)" opacity="0.5"/>
+  <!-- Left tower -->
+  <rect x="95" y="160" width="55" height="175" fill="url(#tower)" stroke="#6b7d93" stroke-width="1"/>
+  <!-- Left tower battlements -->
+  <rect x="95" y="148" width="14" height="16" fill="url(#tower)"/>
+  <rect x="117" y="148" width="14" height="16" fill="url(#tower)"/>
+  <!-- Left tower window -->
+  <rect x="113" y="200" width="14" height="22" rx="7" fill="#0a1628" opacity="0.8"/>
+  <rect x="113" y="250" width="14" height="16" rx="2" fill="#0a1628" opacity="0.6"/>
 
-  <!-- Forest - Front row of trees -->
-  <!-- Tree left -->
-  <polygon points="100,360 140,230 180,360" fill="url(#tree2)"/>
-  <polygon points="110,310 140,210 170,310" fill="url(#tree2)" opacity="0.9"/>
-  <rect x="135" y="360" width="10" height="25" fill="#5c3a1e"/>
+  <!-- Right tower -->
+  <rect x="362" y="160" width="55" height="175" fill="url(#tower)" stroke="#6b7d93" stroke-width="1"/>
+  <!-- Right tower battlements -->
+  <rect x="370" y="148" width="14" height="16" fill="url(#tower)"/>
+  <rect x="392" y="148" width="14" height="16" fill="url(#tower)"/>
+  <!-- Right tower window -->
+  <rect x="381" y="200" width="14" height="22" rx="7" fill="#0a1628" opacity="0.8"/>
+  <rect x="381" y="250" width="14" height="16" rx="2" fill="#0a1628" opacity="0.6"/>
 
-  <!-- Tree right -->
-  <polygon points="330,360 370,230 410,360" fill="url(#tree2)"/>
-  <polygon points="340,310 370,210 400,310" fill="url(#tree2)" opacity="0.9"/>
-  <rect x="365" y="360" width="10" height="25" fill="#5c3a1e"/>
+  <!-- Center tower (tallest) -->
+  <rect x="220" y="110" width="72" height="115" fill="url(#tower)" stroke="#6b7d93" stroke-width="1"/>
+  <!-- Center tower battlements -->
+  <rect x="220" y="98" width="16" height="16" fill="url(#tower)"/>
+  <rect x="244" y="98" width="24" height="16" fill="url(#tower)"/>
+  <rect x="276" y="98" width="16" height="16" fill="url(#tower)"/>
 
-  <!-- Ground -->
-  <ellipse cx="256" cy="395" rx="200" ry="30" fill="#14532d" opacity="0.8"/>
+  <!-- Gate arch -->
+  <path d="M232,335 L232,290 C232,270 256,255 256,255 C256,255 280,270 280,290 L280,335 Z" fill="#0a1628" opacity="0.9"/>
+  <!-- Gate portcullis lines -->
+  <line x1="245" y1="270" x2="245" y2="335" stroke="#5a6a7e" stroke-width="1.5" opacity="0.6"/>
+  <line x1="256" y1="260" x2="256" y2="335" stroke="#5a6a7e" stroke-width="1.5" opacity="0.6"/>
+  <line x1="267" y1="270" x2="267" y2="335" stroke="#5a6a7e" stroke-width="1.5" opacity="0.6"/>
+  <line x1="234" y1="295" x2="278" y2="295" stroke="#5a6a7e" stroke-width="1" opacity="0.5"/>
+  <line x1="233" y1="315" x2="279" y2="315" stroke="#5a6a7e" stroke-width="1" opacity="0.5"/>
 
-  <!-- Shield / Database shape (center) -->
-  <path d="M256,120 C310,120 350,135 350,155 L350,280 C350,330 256,370 256,370 C256,370 162,330 162,280 L162,155 C162,135 202,120 256,120 Z" fill="url(#shield)" opacity="0.9" stroke="#34d399" stroke-width="2"/>
+  <!-- Shield emblem on center tower -->
+  <path d="M256,135 C275,135 288,140 288,148 L288,180 C288,198 256,210 256,210 C256,210 224,198 224,180 L224,148 C224,140 237,135 256,135 Z" fill="url(#shield)" opacity="0.9" stroke="#34d399" stroke-width="1.5"/>
 
-  <!-- Database cylinder lines on shield -->
-  <ellipse cx="256" cy="155" rx="94" ry="20" fill="none" stroke="#a7f3d0" stroke-width="1.5" opacity="0.6"/>
-  <path d="M162,195 C162,210 202,225 256,225 C310,225 350,210 350,195" fill="none" stroke="#a7f3d0" stroke-width="1.5" opacity="0.5"/>
-  <path d="M165,235 C170,250 210,265 256,265 C302,265 340,250 347,235" fill="none" stroke="#a7f3d0" stroke-width="1.5" opacity="0.4"/>
-
-  <!-- Quantum Key icon (center of shield) -->
-  <g transform="translate(256,210)" filter="url(#glow)">
-    <!-- Key head (circle with lattice pattern) -->
-    <circle cx="0" cy="0" r="28" fill="none" stroke="url(#key)" stroke-width="3"/>
-    <circle cx="0" cy="0" r="18" fill="none" stroke="url(#key)" stroke-width="2" opacity="0.7"/>
-    <!-- Lattice dots representing quantum lattice -->
-    <circle cx="-10" cy="-10" r="3" fill="#fbbf24"/>
-    <circle cx="10" cy="-10" r="3" fill="#fbbf24"/>
-    <circle cx="-10" cy="10" r="3" fill="#fbbf24"/>
-    <circle cx="10" cy="10" r="3" fill="#fbbf24"/>
-    <circle cx="0" cy="0" r="3" fill="#fbbf24"/>
+  <!-- Quantum key icon inside shield -->
+  <g transform="translate(256,170)" filter="url(#glow)">
+    <!-- Key head (quantum lattice circle) -->
+    <circle cx="0" cy="0" r="16" fill="none" stroke="url(#key)" stroke-width="2"/>
+    <circle cx="0" cy="0" r="10" fill="none" stroke="url(#key)" stroke-width="1.5" opacity="0.7"/>
+    <!-- Lattice dots -->
+    <circle cx="-6" cy="-6" r="2" fill="#fbbf24"/>
+    <circle cx="6" cy="-6" r="2" fill="#fbbf24"/>
+    <circle cx="-6" cy="6" r="2" fill="#fbbf24"/>
+    <circle cx="6" cy="6" r="2" fill="#fbbf24"/>
+    <circle cx="0" cy="0" r="2" fill="#fbbf24"/>
     <!-- Lattice lines -->
-    <line x1="-10" y1="-10" x2="10" y2="-10" stroke="#fbbf24" stroke-width="1" opacity="0.5"/>
-    <line x1="-10" y1="10" x2="10" y2="10" stroke="#fbbf24" stroke-width="1" opacity="0.5"/>
-    <line x1="-10" y1="-10" x2="-10" y2="10" stroke="#fbbf24" stroke-width="1" opacity="0.5"/>
-    <line x1="10" y1="-10" x2="10" y2="10" stroke="#fbbf24" stroke-width="1" opacity="0.5"/>
+    <line x1="-6" y1="-6" x2="6" y2="-6" stroke="#fbbf24" stroke-width="0.8" opacity="0.5"/>
+    <line x1="-6" y1="6" x2="6" y2="6" stroke="#fbbf24" stroke-width="0.8" opacity="0.5"/>
+    <line x1="-6" y1="-6" x2="-6" y2="6" stroke="#fbbf24" stroke-width="0.8" opacity="0.5"/>
+    <line x1="6" y1="-6" x2="6" y2="6" stroke="#fbbf24" stroke-width="0.8" opacity="0.5"/>
     <!-- Key shaft -->
-    <line x1="0" y1="28" x2="0" y2="75" stroke="url(#key)" stroke-width="3" stroke-linecap="round"/>
+    <line x1="0" y1="16" x2="0" y2="35" stroke="url(#key)" stroke-width="2" stroke-linecap="round"/>
     <!-- Key teeth -->
-    <line x1="0" y1="60" x2="12" y2="60" stroke="url(#key)" stroke-width="3" stroke-linecap="round"/>
-    <line x1="0" y1="70" x2="8" y2="70" stroke="url(#key)" stroke-width="3" stroke-linecap="round"/>
+    <line x1="0" y1="28" x2="7" y2="28" stroke="url(#key)" stroke-width="2" stroke-linecap="round"/>
+    <line x1="0" y1="33" x2="5" y2="33" stroke="url(#key)" stroke-width="2" stroke-linecap="round"/>
   </g>
 
-  <!-- Orbiting quantum particles -->
-  <circle cx="200" cy="160" r="3" fill="#67e8f9" opacity="0.8">
+  <!-- Orbiting quantum particles around fortress -->
+  <circle cx="170" cy="140" r="3" fill="#67e8f9" opacity="0.8">
     <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite"/>
   </circle>
-  <circle cx="312" cy="175" r="2.5" fill="#67e8f9" opacity="0.6">
+  <circle cx="345" cy="130" r="2.5" fill="#67e8f9" opacity="0.6">
     <animate attributeName="opacity" values="0.5;1;0.5" dur="1.5s" repeatCount="indefinite"/>
   </circle>
-  <circle cx="230" cy="310" r="2" fill="#a78bfa" opacity="0.7">
+  <circle cx="140" cy="260" r="2" fill="#a78bfa" opacity="0.7">
     <animate attributeName="opacity" values="0.4;1;0.4" dur="2.5s" repeatCount="indefinite"/>
   </circle>
-  <circle cx="290" cy="140" r="2" fill="#a78bfa" opacity="0.5">
+  <circle cx="380" cy="280" r="2" fill="#a78bfa" opacity="0.5">
     <animate attributeName="opacity" values="0.6;1;0.6" dur="1.8s" repeatCount="indefinite"/>
   </circle>
+  <circle cx="256" cy="90" r="2.5" fill="#67e8f9" opacity="0.7">
+    <animate attributeName="opacity" values="0.4;1;0.4" dur="1.7s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Stars in background -->
+  <circle cx="80" cy="80" r="1.5" fill="#e2e8f0" opacity="0.4"/>
+  <circle cx="430" cy="70" r="1" fill="#e2e8f0" opacity="0.3"/>
+  <circle cx="60" cy="180" r="1" fill="#e2e8f0" opacity="0.35"/>
+  <circle cx="450" cy="190" r="1.5" fill="#e2e8f0" opacity="0.3"/>
+  <circle cx="160" cy="60" r="1" fill="#e2e8f0" opacity="0.25"/>
+  <circle cx="350" cy="55" r="1" fill="#e2e8f0" opacity="0.3"/>
 
   <!-- Text: FortressQL -->
-  <text x="256" y="450" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-weight="bold" font-size="42" fill="#e2e8f0" letter-spacing="3">
+  <text x="256" y="410" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-weight="bold" font-size="42" fill="#e2e8f0" letter-spacing="3">
     FortressQL
   </text>
-  <text x="256" y="475" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="13" fill="#94a3b8" letter-spacing="5">
+  <text x="256" y="435" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="13" fill="#94a3b8" letter-spacing="5">
     POST-QUANTUM DATABASE
   </text>
 </svg>

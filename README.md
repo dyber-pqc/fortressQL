@@ -159,11 +159,13 @@ SELECT * FROM pqc_algorithms();
 
 Encrypt heap pages, indexes, and WAL at rest using ML-KEM-derived keys with AES-256-CTR. No other PostgreSQL fork offers PQC-native encryption at rest.
 
-```
-# postgresql.conf
-fortressql_tde_enabled = on
-fortressql_master_key_command = 'vault read -field=key secret/fortressql/master'
-fortressql_kem_algorithm = 'ML-KEM-768'
+```bash
+# 1. Initialize the TDE master key (generates ML-KEM keypair)
+export FORTRESSQL_KEM_SECRET_KEY=/etc/fortressql/kem_secret.key
+pg_tde_master_key init --algorithm=ML-KEM-768 --data-dir=/var/lib/fortressql/data
+
+# 2. Enable TDE in postgresql.conf
+#   tde_enabled = on
 ```
 
 Key hierarchy: **Master Key** (ML-KEM wrapped) -> **Tablespace Keys** (AES-256-GCM encrypted) -> **Page IVs** (HKDF derived)
@@ -204,6 +206,35 @@ pg_restore --pqc-decrypt-key=recipient.key \
            --pqc-verify-key=signer.pub \
            backup.dump
 ```
+
+### Database Upgrades with TDE
+
+FortressQL's `pg_upgrade` automatically migrates TDE encryption keys:
+
+```bash
+# Standard pg_upgrade — TDE keys are migrated automatically
+pg_upgrade -b /old/bin -B /new/bin -d /old/data -D /new/data
+
+# pg_upgrade detects TDE and copies master.key + master.pub
+# with restrictive permissions (0600) and fsync for durability
+```
+
+No manual key copying is required. The upgrade process validates that the master key file was successfully transferred.
+
+### Base Backups with TDE
+
+```bash
+# Include TDE keys in backup (default)
+pg_basebackup -D /backup/dir --tde-key-handling=include
+
+# Exclude TDE keys (for less-secure storage locations)
+pg_basebackup -D /backup/dir --tde-key-handling=exclude
+
+# Verify TDE key presence without modifying
+pg_basebackup -D /backup/dir --tde-key-handling=verify-only
+```
+
+**Security note:** Backups with `--tde-key-handling=include` contain cryptographic key material. Store them with the same security controls as your production database.
 
 ### Crypto Agility Engine
 
@@ -399,9 +430,7 @@ meson test --suite regress --print-errorlogs # Core regression tests
 | `ssl_pqc_groups` | string | `X25519MLKEM768:X25519:prime256v1` | Key exchange groups |
 | `ssl_pqc_sigalgs` | string | *(empty)* | TLS signature algorithms |
 | **Transparent Data Encryption** | | | |
-| `fortressql_tde_enabled` | bool | `off` | Enable TDE for data at rest |
-| `fortressql_master_key_command` | string | *(empty)* | Command to retrieve master key passphrase |
-| `fortressql_kem_algorithm` | enum | `ML-KEM-768` | KEM algorithm for master key wrapping |
+| `tde_enabled` | bool | `off` | Enable TDE for data at rest |
 | **WAL Signing** | | | |
 | `wal_pqc_signing` | bool | `off` | Enable ML-DSA signing of WAL segments |
 | `wal_pqc_signing_algorithm` | string | `ML-DSA-65` | Signature algorithm for WAL |

@@ -243,19 +243,23 @@ The KEM secret key is used to unwrap the master key at server startup. Store thi
 export FORTRESSQL_KEM_SECRET_KEY=/etc/fortressql/kem_secret.key
 ```
 
-Alternatively, use `fortressql_master_key_command` to retrieve the key from a vault:
+Alternatively, use a wrapper script that retrieves the key from a vault and writes it to the path specified by `FORTRESSQL_KEM_SECRET_KEY`:
 
-```ini
-# postgresql.conf
-fortressql_master_key_command = 'vault read -field=key secret/fortressql/master'
+```bash
+#!/bin/bash
+# /usr/local/bin/fetch-kem-key.sh
+vault read -field=key secret/fortressql/master > "$FORTRESSQL_KEM_SECRET_KEY"
+chmod 600 "$FORTRESSQL_KEM_SECRET_KEY"
 ```
+
+Run this script before starting the server (for example, in a systemd `ExecStartPre` directive).
 
 #### Step 3: Enable TDE in postgresql.conf
 
 ```ini
-fortressql_tde_enabled = on
-fortressql_kem_algorithm = 'ML-KEM-768'         # ML-KEM-512, ML-KEM-768, or ML-KEM-1024
-fortressql_master_key_command = ''               # or vault command from Step 2
+tde_enabled = on
+# The KEM algorithm defaults to ML-KEM-768 and is not currently a configurable GUC.
+# It is set at master key initialization time by pg_tde_master_key init.
 ```
 
 #### Step 4: Restart the server
@@ -264,14 +268,19 @@ fortressql_master_key_command = ''               # or vault command from Step 2
 sudo systemctl restart fortressql
 ```
 
-#### Step 5: Create encrypted tablespaces
+#### Step 5: Verify TDE is active
+
+Once the server starts with TDE enabled, all heap pages, indexes, and WAL are encrypted transparently. There is no separate `CREATE ENCRYPTION KEY` SQL command. Verify TDE status:
 
 ```sql
-CREATE ENCRYPTION KEY prod_key ALGORITHM 'ML-KEM-768';
-CREATE TABLESPACE encrypted_data LOCATION '/data/secure' ENCRYPTION KEY prod_key;
+SELECT * FROM pg_stat_pqc WHERE tde_pages_encrypted > 0;
+```
 
--- Tables in this tablespace are encrypted at rest
-CREATE TABLE sensitive_records (id int, data text) TABLESPACE encrypted_data;
+To create a tablespace whose data is stored in a separate directory (all tablespaces are encrypted when TDE is enabled):
+
+```sql
+CREATE TABLESPACE secure_data LOCATION '/data/secure';
+CREATE TABLE sensitive_records (id int, data text) TABLESPACE secure_data;
 ```
 
 ### WAL Signing Setup
@@ -481,16 +490,24 @@ ssl_pqc_sigalgs = 'mldsa65:ed25519'
 
 | Parameter | Type | Default | Reload | Description |
 |-----------|------|---------|--------|-------------|
-| `fortressql_tde_enabled` | bool | `off` | No (restart) | Enable transparent data encryption for heap, index, and WAL pages. |
-| `fortressql_master_key_command` | string | *(empty)* | No (restart) | Shell command to retrieve the master key passphrase. Stdout is used as the passphrase. |
-| `fortressql_kem_algorithm` | enum | `ML-KEM-768` | No (restart) | KEM algorithm for master key wrapping. Options: `ML-KEM-512`, `ML-KEM-768`, `ML-KEM-1024`. |
+| `tde_enabled` | bool | `off` | No (restart) | Enable transparent data encryption for heap, index, and WAL pages. |
+
+The master key is unwrapped at server startup using the KEM secret key referenced by the `FORTRESSQL_KEM_SECRET_KEY` environment variable (set to the file path of the KEM secret key). There is no GUC for this -- it must be set in the server environment before startup.
+
+The KEM algorithm defaults to ML-KEM-768 and is determined at master key initialization time (`pg_tde_master_key init`). It is not currently a configurable GUC.
 
 **Recommended values for production:**
 
 ```ini
-fortressql_tde_enabled = on
-fortressql_kem_algorithm = 'ML-KEM-768'
-fortressql_master_key_command = 'vault read -field=key secret/fortressql/master'
+tde_enabled = on
+```
+
+Set `FORTRESSQL_KEM_SECRET_KEY` in your systemd unit or startup script:
+
+```ini
+# /etc/systemd/system/fortressql.service.d/tde.conf
+[Service]
+Environment="FORTRESSQL_KEM_SECRET_KEY=/etc/fortressql/kem_secret.key"
 ```
 
 ### WAL Signing
@@ -543,7 +560,7 @@ pg_tde_master_key init -D /var/lib/fortressql/data
 **Rotate the master key** (re-wraps all DEKs with a new master key; does not re-encrypt data pages):
 
 ```sql
-SELECT pqc_rotate_master_key();
+SELECT pqc_rotate_tde_master_key();
 ```
 
 This operation:
@@ -576,7 +593,7 @@ For disaster recovery, the master key can be split into shares using Shamir's Se
 
 ```sql
 -- Split master key into 5 shares, requiring 3 to reconstruct
-SELECT * FROM pqc_key_escrow_split(
+SELECT * FROM pqc_escrow_create(
     key_id := 'master',
     total_shares := 5,
     threshold := 3
@@ -588,7 +605,7 @@ Each share should be stored by a different key custodian in a physically separat
 **Reconstruct the key:**
 
 ```sql
-SELECT pqc_key_escrow_reconstruct(
+SELECT pqc_escrow_recover(
     shares := ARRAY['share1_hex', 'share2_hex', 'share3_hex']
 );
 ```
@@ -597,7 +614,7 @@ SELECT pqc_key_escrow_reconstruct(
 
 If the master key is lost or corrupted:
 
-1. **From escrow shares:** Gather the required threshold of shares and use `pqc_key_escrow_reconstruct()`.
+1. **From escrow shares:** Gather the required threshold of shares and use `pqc_escrow_recover()`.
 
 2. **From backup:** If you backed up `$PGDATA/global/pg_tde_master.key` along with the KEM secret key, restore both files.
 
@@ -608,6 +625,25 @@ If the master key is lost or corrupted:
 - Store the KEM secret key in at least two independent locations
 - Include `$PGDATA/global/pg_tde_master.key` in your backup procedures
 - Test key recovery procedures quarterly
+
+### Upgrading with pg_upgrade
+
+When upgrading between FortressQL major versions, `pg_upgrade` handles TDE key migration automatically:
+
+```bash
+pg_upgrade \
+    -b /usr/local/fortressql-old/bin \
+    -B /usr/local/fortressql-new/bin \
+    -d /var/lib/fortressql/data-old \
+    -D /var/lib/fortressql/data-new
+```
+
+**Key points:**
+
+- **Automatic TDE key migration.** `pg_upgrade` detects the TDE master key in the old data directory and copies it to the new data directory. No manual key copying is needed.
+- **KEM secret key must be accessible.** Ensure `FORTRESSQL_KEM_SECRET_KEY` is set in the environment when running `pg_upgrade`, as it needs to verify the master key can be unwrapped.
+- **Migration validation.** `pg_upgrade` validates the TDE key migration by performing a test decryption of a sample page from the old cluster. If validation fails, the upgrade is aborted and no data is modified.
+- **WAL signing keys** are also migrated automatically if `wal_pqc_signing` was enabled in the old cluster.
 
 ---
 
@@ -667,6 +703,38 @@ Standard `pg_dump` without PQC flags works identically to vanilla PostgreSQL:
 
 ```bash
 pg_dump mydb > backup.sql
+```
+
+### Physical Backups with pg_basebackup
+
+When TDE is enabled, `pg_basebackup` supports the `--tde-key-handling` option to control how TDE keys are included in the backup:
+
+```bash
+pg_basebackup -D /backups/base -Fp -Xs --tde-key-handling=include
+```
+
+**Available modes:**
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `include` | Copies the TDE master key file into the backup. The backup can be restored and started directly. | Standbys, fast disaster recovery where the backup storage is trusted. |
+| `exclude` | Omits the TDE master key file. The backup cannot be started without manually providing the key. | Offsite or cloud backups where key and data should be stored separately. |
+| `verify-only` | Validates that TDE keys are consistent but does not include them in the backup. | Audit and verification workflows; confirms data pages can be decrypted before backup completes. |
+
+**Security implications:**
+
+- **`include` mode** means anyone with access to the backup and the KEM secret key can read all data. Only use this when the backup destination has the same security posture as the primary server.
+- **`exclude` mode** provides defense in depth: a stolen backup is useless without the master key. You must ensure the master key file (`$PGDATA/global/pg_tde_master.key`) and the KEM secret key are available when restoring. Store them separately from the backup.
+- **`verify-only` mode** is useful for scheduled integrity checks. It confirms the backup process can read all encrypted pages without actually transferring key material.
+
+**Example: secure offsite backup**
+
+```bash
+# Take a backup without keys
+pg_basebackup -D /backups/base -Fp -Xs --tde-key-handling=exclude
+
+# Separately back up the master key to a different secure location
+cp /var/lib/fortressql/data/global/pg_tde_master.key /secure-key-storage/
 ```
 
 ---
@@ -804,8 +872,8 @@ ls $(openssl version -d | cut -d'"' -f2)/oqsprovider.*
 
 1. **Verify the master key is accessible:**
    ```bash
-   # Check if the master key command works
-   eval $(grep fortressql_master_key_command postgresql.conf | cut -d"'" -f2)
+   # Check that the KEM secret key file exists and is readable
+   ls -la "$FORTRESSQL_KEM_SECRET_KEY"
    ```
 
 2. **Check for key mismatch:** If the database was restored from a backup made with a different master key, the current key will not decrypt the pages.
