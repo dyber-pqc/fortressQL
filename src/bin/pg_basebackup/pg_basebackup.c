@@ -156,7 +156,9 @@ static char *manifest_checksums = NULL;
 static DataDirSyncMethod sync_method = DATA_DIR_SYNC_METHOD_FSYNC;
 
 /* FortressQL TDE backup options */
+#ifdef USE_PQC
 static bool tde_keys_found = false;
+#endif
 static char *tde_key_handling = NULL;	/* "include" (default), "exclude", "verify-only" */
 
 static bool success = false;

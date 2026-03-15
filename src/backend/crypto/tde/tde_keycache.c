@@ -88,8 +88,8 @@ tde_keycache_init(void)
 /*
  * tde_keycache_lookup
  *
- * Look up the active TDEK for the given tablespace OID.  Returns a
- * pointer to the entry on hit, or NULL on miss.
+ * Look up the active TDEK for the given tablespace OID.  Copies the
+ * entry into the caller-provided buffer.  Returns true on hit, false on miss.
  *
  * Takes a shared (read) lock, so multiple backends can look up keys
  * concurrently.

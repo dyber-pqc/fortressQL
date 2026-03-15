@@ -93,7 +93,7 @@ static void
 tde_wal_crypt(char *page, int pageSize, XLogSegNo segno, uint32 offset)
 {
 	XLogPageHeader hdr = (XLogPageHeader) page;
-	TdeKeyEntry *entry;
+	TdeKeyEntry entry;
 	uint8		iv[TDE_IV_LEN];
 	EVP_CIPHER_CTX *ctx;
 	int			hdr_size;
@@ -114,15 +114,14 @@ tde_wal_crypt(char *page, int pageSize, XLogSegNo segno, uint32 offset)
 	 * Use tablespace 0 (global) for the WAL key.  The WAL shares the
 	 * global tablespace's TDEK.
 	 */
-	entry = tde_keycache_lookup(InvalidOid);
-	if (entry == NULL)
+	if (!tde_keycache_lookup(InvalidOid, &entry))
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("TDE: no WAL encryption key found"),
 				 errhint("Ensure TDE is configured and the master key is loaded.")));
 
 	/* Derive per-page IV */
-	tde_derive_wal_iv(entry->key, segno, offset, iv);
+	tde_derive_wal_iv(entry.key, segno, offset, iv);
 
 	/* Set up AES-256-CTR */
 	ctx = EVP_CIPHER_CTX_new();
@@ -132,7 +131,7 @@ tde_wal_crypt(char *page, int pageSize, XLogSegNo segno, uint32 offset)
 				 errmsg("TDE: failed to allocate cipher context for WAL")));
 
 	if (EVP_EncryptInit_ex(ctx, EVP_aes_256_ctr(), NULL,
-						   entry->key, iv) != 1)
+						   entry.key, iv) != 1)
 	{
 		EVP_CIPHER_CTX_free(ctx);
 		ereport(ERROR,

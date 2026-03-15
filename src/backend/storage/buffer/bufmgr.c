@@ -1542,11 +1542,10 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 			 */
 			if (tde_enabled && !PageIsNew((Page) bufBlock))
 			{
-				TdeKeyEntry *tde_key;
+				TdeKeyEntry tde_key;
 
-				tde_key = tde_keycache_lookup(
-					operation->smgr->smgr_rlocator.locator.spcOid);
-				if (tde_key != NULL)
+				if (tde_keycache_lookup(
+					operation->smgr->smgr_rlocator.locator.spcOid, &tde_key))
 				{
 					tde_decrypt_page((Page) bufBlock, BLCKSZ,
 									 operation->smgr->smgr_rlocator.locator.spcOid,
@@ -3957,10 +3956,9 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln, IOObject io_object,
 	 */
 	if (tde_enabled)
 	{
-		TdeKeyEntry *tde_key;
+		TdeKeyEntry tde_key;
 
-		tde_key = tde_keycache_lookup(reln->smgr_rlocator.locator.spcOid);
-		if (tde_key != NULL)
+		if (tde_keycache_lookup(reln->smgr_rlocator.locator.spcOid, &tde_key))
 		{
 			static char *tde_page_copy = NULL;
 

@@ -109,7 +109,7 @@ extern void tde_decrypt_wal_page(char *page, int pageSize,
 
 /* tde_keycache.c - shared memory key cache */
 extern void tde_keycache_init(void);
-extern TdeKeyEntry *tde_keycache_lookup(Oid spcOid);
+extern bool tde_keycache_lookup(Oid spcOid, TdeKeyEntry *entry_out);
 extern void tde_keycache_invalidate(void);
 extern Size tde_keycache_shmem_size(void);
 extern void tde_keycache_shmem_init(void);
