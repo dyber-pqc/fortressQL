@@ -39,7 +39,13 @@ typedef enum UserAuth
 	uaCert,
 	uaRADIUS,
 	uaPeer,
+#ifdef USE_PQC
+	uaPQCCert,					/* FortressQL: PQC certificate authentication */
+	uaPQCSCRAM,					/* FortressQL: PQC-SCRAM-SHA-384 */
+#define USER_AUTH_LAST uaPQCSCRAM
+#else
 #define USER_AUTH_LAST uaPeer	/* Must be last value of this enum */
+#endif
 } UserAuth;
 
 /*

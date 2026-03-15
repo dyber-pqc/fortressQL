@@ -58,6 +58,11 @@ bool		SSLPreferServerCiphers;
 int			ssl_min_protocol_version = PG_TLS1_2_VERSION;
 int			ssl_max_protocol_version = PG_TLS_ANY;
 
+/* FortressQL: PQC GUC variables */
+char	   *ssl_pqc_groups_string = NULL;
+char	   *ssl_pqc_sigalgs_string = NULL;
+int			ssl_pqc_mode = PQC_TLS_HYBRID;
+
 /* ------------------------------------------------------------ */
 /*			 Procedures common to all secure sessions			*/
 /* ------------------------------------------------------------ */

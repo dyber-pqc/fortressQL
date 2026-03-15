@@ -1,0 +1,4 @@
+comment = 'FortressQL: Post-Quantum Cryptographic functions (ML-KEM, ML-DSA, SLH-DSA)'
+default_version = '1.0'
+module_pathname = '$libdir/pgcrypto_pqc'
+relocatable = true

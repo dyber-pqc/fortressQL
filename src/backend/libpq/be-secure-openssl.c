@@ -299,6 +299,59 @@ be_tls_init(bool isServerStart)
 	if (!initialize_ecdh(context, isServerStart))
 		goto error;
 
+	/*
+	 * FortressQL: Configure Post-Quantum Cryptography groups.
+	 *
+	 * When PQC mode is enabled, we configure the TLS key exchange groups
+	 * to include PQC hybrid groups (e.g., X25519MLKEM768). This works with:
+	 *   - OpenSSL 3.5+ which has native ML-KEM support
+	 *   - OpenSSL 3.0-3.4 with oqs-provider loaded
+	 *
+	 * SSL_CTX_set1_groups_list() accepts a colon-separated list of group
+	 * names and handles both classical and PQC groups transparently.
+	 */
+#ifdef USE_PQC
+	if (ssl_pqc_mode != PQC_TLS_OFF &&
+		ssl_pqc_groups_string != NULL &&
+		ssl_pqc_groups_string[0] != '\0')
+	{
+		if (!SSL_CTX_set1_groups_list(context, ssl_pqc_groups_string))
+		{
+			ereport(isServerStart ? FATAL : LOG,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("could not set PQC key exchange groups \"%s\": %s",
+							ssl_pqc_groups_string,
+							SSLerrmessage(ERR_get_error())),
+					 errhint("Ensure OpenSSL 3.5+ or oqs-provider is installed "
+							 "for PQC group support.")));
+			goto error;
+		}
+
+		ereport(LOG,
+				(errmsg("FortressQL: PQC TLS groups configured: %s (mode: %s)",
+						ssl_pqc_groups_string,
+						ssl_pqc_mode == PQC_TLS_HYBRID ? "hybrid" : "pqc-only")));
+	}
+
+	/* Configure PQC signature algorithms for certificate verification */
+	if (ssl_pqc_mode != PQC_TLS_OFF &&
+		ssl_pqc_sigalgs_string != NULL &&
+		ssl_pqc_sigalgs_string[0] != '\0')
+	{
+		if (!SSL_CTX_set1_sigalgs_list(context, ssl_pqc_sigalgs_string))
+		{
+			ereport(isServerStart ? FATAL : LOG,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("could not set PQC signature algorithms \"%s\": %s",
+							ssl_pqc_sigalgs_string,
+							SSLerrmessage(ERR_get_error())),
+					 errhint("Ensure OpenSSL 3.5+ or oqs-provider supports "
+							 "the specified PQC signature algorithms.")));
+			goto error;
+		}
+	}
+#endif							/* USE_PQC */
+
 	/* set up the allowed cipher list */
 	if (SSL_CTX_set_cipher_list(context, SSLCipherSuites) != 1)
 	{
@@ -1546,6 +1599,56 @@ be_tls_get_peer_serial(Port *port, char *ptr, size_t len)
 		BN_free(b);
 		strlcpy(ptr, decimal, len);
 		OPENSSL_free(decimal);
+	}
+	else
+		ptr[0] = '\0';
+}
+
+/*
+ * FortressQL: Get the key exchange group name for the SSL connection.
+ * Returns the negotiated group (e.g. "X25519MLKEM768", "X25519", "prime256v1").
+ * This allows pg_stat_ssl to report PQC key exchange usage.
+ */
+void
+be_tls_get_pqc_group(Port *port, char *ptr, size_t len)
+{
+	if (port->ssl)
+	{
+		/*
+		 * SSL_get_negotiated_group() returns the NID of the negotiated group.
+		 * Available in OpenSSL 3.0+.
+		 */
+#if defined(SSL_get_negotiated_group)
+		int			group_nid = SSL_get_negotiated_group(port->ssl);
+
+		if (group_nid != NID_undef && group_nid != 0)
+		{
+			const char *group_name = OBJ_nid2sn(group_nid);
+
+			if (group_name != NULL)
+			{
+				strlcpy(ptr, group_name, len);
+				return;
+			}
+		}
+#endif
+
+		/*
+		 * Fallback: try SSL_get0_group_name() available in OpenSSL 3.2+
+		 */
+#if defined(SSL_get0_group_name)
+		{
+			const char *group_name = SSL_get0_group_name(port->ssl);
+
+			if (group_name != NULL)
+			{
+				strlcpy(ptr, group_name, len);
+				return;
+			}
+		}
+#endif
+
+		ptr[0] = '\0';
 	}
 	else
 		ptr[0] = '\0';

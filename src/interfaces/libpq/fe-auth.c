@@ -465,13 +465,45 @@ pg_SASL_init(PGconn *conn, int payloadlen)
 			break;
 
 		/*
-		 * Select the mechanism to use.  Pick SCRAM-SHA-256-PLUS over anything
-		 * else if a channel binding type is set and if the client supports it
-		 * (and did not set channel_binding=disable). Pick SCRAM-SHA-256 if
-		 * nothing else has already been picked.  If we add more mechanisms, a
-		 * more refined priority mechanism might become necessary.
+		 * Select the mechanism to use.  Priority order:
+		 *   1. SCRAM-SHA-384-PLUS (FortressQL, strongest)
+		 *   2. SCRAM-SHA-256-PLUS
+		 *   3. SCRAM-SHA-384 (FortressQL)
+		 *   4. SCRAM-SHA-256
+		 *
+		 * Pick the PLUS variant if a channel binding type is set and
+		 * the client supports it (and did not set channel_binding=disable).
 		 */
-		if (strcmp(mechanism_buf.data, SCRAM_SHA_256_PLUS_NAME) == 0)
+
+		/*
+		 * FortressQL: SCRAM-SHA-384-PLUS — highest priority
+		 */
+		if (strcmp(mechanism_buf.data, SCRAM_SHA_384_PLUS_NAME) == 0)
+		{
+			if (conn->ssl_in_use)
+			{
+#ifdef USE_SSL
+				if (conn->channel_binding[0] != 'd')	/* disable */
+				{
+					selected_mechanism = SCRAM_SHA_384_PLUS_NAME;
+					conn->sasl = &pg_scram_mech;
+					conn->password_needed = true;
+				}
+#else
+				if (conn->channel_binding[0] == 'r')	/* require */
+				{
+					libpq_append_conn_error(conn, "channel binding is required, but client does not support it");
+					goto error;
+				}
+#endif
+			}
+			else
+			{
+				libpq_append_conn_error(conn, "server offered SCRAM-SHA-384-PLUS authentication over a non-SSL connection");
+				goto error;
+			}
+		}
+		else if (strcmp(mechanism_buf.data, SCRAM_SHA_256_PLUS_NAME) == 0)
 		{
 			if (conn->ssl_in_use)
 			{
@@ -484,9 +516,14 @@ pg_SASL_init(PGconn *conn, int payloadlen)
 				 */
 				if (conn->channel_binding[0] != 'd')	/* disable */
 				{
-					selected_mechanism = SCRAM_SHA_256_PLUS_NAME;
-					conn->sasl = &pg_scram_mech;
-					conn->password_needed = true;
+					/* Only override if we haven't already selected SHA-384-PLUS */
+					if (!selected_mechanism ||
+						strcmp(selected_mechanism, SCRAM_SHA_384_PLUS_NAME) != 0)
+					{
+						selected_mechanism = SCRAM_SHA_256_PLUS_NAME;
+						conn->sasl = &pg_scram_mech;
+						conn->password_needed = true;
+					}
 				}
 #else
 				/*
@@ -517,6 +554,16 @@ pg_SASL_init(PGconn *conn, int payloadlen)
 				goto error;
 			}
 		}
+		/*
+		 * FortressQL: SCRAM-SHA-384 without channel binding
+		 */
+		else if (strcmp(mechanism_buf.data, SCRAM_SHA_384_NAME) == 0 &&
+				 !selected_mechanism)
+		{
+			selected_mechanism = SCRAM_SHA_384_NAME;
+			conn->sasl = &pg_scram_mech;
+			conn->password_needed = true;
+		}
 		else if (strcmp(mechanism_buf.data, SCRAM_SHA_256_NAME) == 0 &&
 				 !selected_mechanism)
 		{
@@ -533,7 +580,8 @@ pg_SASL_init(PGconn *conn, int payloadlen)
 	}
 
 	if (conn->channel_binding[0] == 'r' &&	/* require */
-		strcmp(selected_mechanism, SCRAM_SHA_256_PLUS_NAME) != 0)
+		strcmp(selected_mechanism, SCRAM_SHA_256_PLUS_NAME) != 0 &&
+		strcmp(selected_mechanism, SCRAM_SHA_384_PLUS_NAME) != 0)
 	{
 		libpq_append_conn_error(conn, "channel binding is required, but server did not offer an authentication method that supports channel binding");
 		goto error;

@@ -119,6 +119,11 @@
 #ssl_passphrase_command = ''
 #ssl_passphrase_command_supports_reload = off
 
+# - FortressQL: Post-Quantum Cryptography -
+#ssl_pqc_mode = hybrid			# off, hybrid, pqc-only
+#ssl_pqc_groups = 'X25519MLKEM768:X25519:prime256v1'  # PQC key exchange groups
+#ssl_pqc_sigalgs = ''			# PQC signature algorithms (empty = defaults)
+
 
 #------------------------------------------------------------------------------
 # RESOURCE USAGE (except WAL)

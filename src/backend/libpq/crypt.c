@@ -100,7 +100,13 @@ get_password_type(const char *shadow_pass)
 		return PASSWORD_TYPE_MD5;
 	if (parse_scram_secret(shadow_pass, &iterations, &hash_type, &key_length,
 						   &encoded_salt, stored_key, server_key))
+	{
+#ifdef USE_PQC
+		if (hash_type == PG_SHA384)
+			return PASSWORD_TYPE_SCRAM_SHA_384;
+#endif
 		return PASSWORD_TYPE_SCRAM_SHA_256;
+	}
 	return PASSWORD_TYPE_PLAINTEXT;
 }
 
@@ -140,6 +146,11 @@ encrypt_password(PasswordType target_type, const char *role,
 
 		case PASSWORD_TYPE_SCRAM_SHA_256:
 			return pg_be_scram_build_secret(password);
+
+#ifdef USE_PQC
+		case PASSWORD_TYPE_SCRAM_SHA_384:
+			return pg_be_scram_build_secret_sha384(password);
+#endif
 
 		case PASSWORD_TYPE_PLAINTEXT:
 			elog(ERROR, "cannot encrypt password with 'plaintext'");
@@ -234,6 +245,9 @@ plain_crypt_verify(const char *role, const char *shadow_pass,
 	switch (get_password_type(shadow_pass))
 	{
 		case PASSWORD_TYPE_SCRAM_SHA_256:
+#ifdef USE_PQC
+		case PASSWORD_TYPE_SCRAM_SHA_384:
+#endif
 			if (scram_verify_plain_password(role,
 											client_pass,
 											shadow_pass))

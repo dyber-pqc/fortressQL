@@ -114,7 +114,11 @@ static const char *const UserAuthName[] =
 	"ldap",
 	"cert",
 	"radius",
-	"peer"
+	"peer",
+#ifdef USE_PQC
+	"pqc-cert",
+	"pqc-scram-sha-384",
+#endif
 };
 
 /*
@@ -1743,6 +1747,18 @@ parse_hba_line(TokenizedAuthLine *tok_line, int elevel)
 #endif
 	else if (strcmp(token->string, "radius") == 0)
 		parsedline->auth_method = uaRADIUS;
+	else if (strcmp(token->string, "pqc-cert") == 0)
+#ifdef USE_PQC
+		parsedline->auth_method = uaPQCCert;
+#else
+		unsupauth = "pqc-cert";
+#endif
+	else if (strcmp(token->string, "pqc-scram-sha-384") == 0)
+#ifdef USE_PQC
+		parsedline->auth_method = uaPQCSCRAM;
+#else
+		unsupauth = "pqc-scram-sha-384";
+#endif
 	else
 	{
 		ereport(elevel,

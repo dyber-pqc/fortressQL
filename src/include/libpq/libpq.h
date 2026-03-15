@@ -132,6 +132,18 @@ enum ssl_protocol_versions
 	PG_TLS1_3_VERSION,
 };
 
+/* FortressQL: Post-Quantum Cryptography GUC variables */
+extern PGDLLIMPORT char *ssl_pqc_groups_string;
+extern PGDLLIMPORT char *ssl_pqc_sigalgs_string;
+extern PGDLLIMPORT int ssl_pqc_mode;
+
+typedef enum PqcTlsMode
+{
+	PQC_TLS_OFF = 0,
+	PQC_TLS_HYBRID,
+	PQC_TLS_PQC_ONLY,
+} PqcTlsMode;
+
 /*
  * prototypes for functions in be-secure-common.c
  */

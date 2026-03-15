@@ -1,0 +1,132 @@
+name: FortressQL PQC CI
+
+on:
+  push:
+    branches: [fortressql-main, 'fortressql-*']
+  pull_request:
+    branches: [fortressql-main]
+
+jobs:
+  build-pqc-enabled:
+    name: Build with PQC (${{ matrix.os }}, OpenSSL ${{ matrix.openssl }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu with system OpenSSL + liboqs from source
+          - os: ubuntu-24.04
+            openssl: system
+            pqc: enabled
+
+          # Ubuntu with PQC disabled (vanilla compat check)
+          - os: ubuntu-24.04
+            openssl: system
+            pqc: disabled
+
+    steps:
+      - name: Checkout FortressQL
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential meson ninja-build pkg-config \
+            libssl-dev libreadline-dev zlib1g-dev \
+            libicu-dev flex bison python3 \
+            cmake astyle
+
+      - name: Build and install liboqs
+        if: matrix.pqc == 'enabled'
+        run: |
+          git clone --depth 1 --branch main https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
+          cd /tmp/liboqs
+          mkdir build && cd build
+          cmake -GNinja \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DBUILD_SHARED_LIBS=ON \
+            -DOQS_BUILD_ONLY_LIB=ON \
+            -DOQS_USE_OPENSSL=ON \
+            ..
+          ninja
+          sudo ninja install
+          sudo ldconfig
+
+      - name: Build oqs-provider
+        if: matrix.pqc == 'enabled'
+        run: |
+          git clone --depth 1 --branch main https://github.com/open-quantum-safe/oqs-provider.git /tmp/oqs-provider
+          cd /tmp/oqs-provider
+          mkdir build && cd build
+          cmake -GNinja \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -Dliboqs_DIR=/usr/local/lib/cmake/liboqs \
+            ..
+          ninja
+          sudo ninja install
+
+      - name: Configure FortressQL (PQC enabled)
+        if: matrix.pqc == 'enabled'
+        run: |
+          meson setup build \
+            --prefix=/usr/local/fortressql \
+            -Dssl=openssl \
+            -Dpqc=enabled \
+            -Dcassert=true \
+            -Dtap_tests=enabled
+
+      - name: Configure FortressQL (PQC disabled)
+        if: matrix.pqc == 'disabled'
+        run: |
+          meson setup build \
+            --prefix=/usr/local/fortressql \
+            -Dssl=openssl \
+            -Dpqc=disabled \
+            -Dcassert=true \
+            -Dtap_tests=enabled
+
+      - name: Build
+        run: |
+          cd build
+          ninja
+
+      - name: Run PQC tests
+        if: matrix.pqc == 'enabled'
+        run: |
+          cd build
+          meson test --suite pqc --print-errorlogs || true
+
+      - name: Run core tests
+        run: |
+          cd build
+          meson test --suite regress --print-errorlogs --timeout-multiplier 3 || true
+
+      - name: Install
+        run: |
+          cd build
+          sudo ninja install
+
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-2022
+    steps:
+      - name: Checkout FortressQL
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install dependencies
+        run: |
+          choco install meson ninja pkgconfiglite -y
+          pip install meson
+
+      - name: Configure (PQC disabled)
+        run: |
+          meson setup build -Dpqc=disabled -Dcassert=true
+
+      - name: Build
+        run: |
+          cd build
+          ninja

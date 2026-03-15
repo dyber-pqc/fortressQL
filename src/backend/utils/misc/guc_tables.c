@@ -436,6 +436,14 @@ static const struct config_enum_entry debug_logical_replication_streaming_option
 StaticAssertDecl(lengthof(ssl_protocol_versions_info) == (PG_TLS1_3_VERSION + 2),
 				 "array length mismatch");
 
+/* FortressQL: PQC TLS mode options */
+static const struct config_enum_entry ssl_pqc_mode_options[] = {
+	{"off", PQC_TLS_OFF, false},
+	{"hybrid", PQC_TLS_HYBRID, false},
+	{"pqc-only", PQC_TLS_PQC_ONLY, false},
+	{NULL, 0, false}
+};
+
 static const struct config_enum_entry recovery_init_sync_method_options[] = {
 	{"fsync", DATA_DIR_SYNC_METHOD_FSYNC, false},
 #ifdef HAVE_SYNCFS
@@ -4640,6 +4648,35 @@ struct config_string ConfigureNamesString[] =
 		NULL, NULL, NULL
 	},
 
+	/* FortressQL: Post-Quantum Cryptography TLS configuration */
+	{
+		{"ssl_pqc_groups", PGC_SIGHUP, CONN_AUTH_SSL,
+			gettext_noop("Sets the PQC and hybrid key exchange groups for SSL connections."),
+			gettext_noop("Colon-separated list of groups. "
+						 "Example: X25519MLKEM768:X25519:prime256v1"),
+			GUC_SUPERUSER_ONLY
+		},
+		&ssl_pqc_groups_string,
+#ifdef USE_PQC
+		"X25519MLKEM768:X25519:prime256v1",
+#else
+		"",
+#endif
+		NULL, NULL, NULL
+	},
+
+	{
+		{"ssl_pqc_sigalgs", PGC_SIGHUP, CONN_AUTH_SSL,
+			gettext_noop("Sets the PQC signature algorithms for SSL certificate verification."),
+			gettext_noop("Colon-separated list of signature algorithms. "
+						 "Empty string means use OpenSSL defaults."),
+			GUC_SUPERUSER_ONLY
+		},
+		&ssl_pqc_sigalgs_string,
+		"",
+		NULL, NULL, NULL
+	},
+
 	{
 		{"application_name", PGC_USERSET, LOGGING_WHAT,
 			gettext_noop("Sets the application name to be reported in statistics and logs."),
@@ -5129,6 +5166,20 @@ struct config_enum ConfigureNamesEnum[] =
 		&ssl_max_protocol_version,
 		PG_TLS_ANY,
 		ssl_protocol_versions_info,
+		NULL, NULL, NULL
+	},
+
+	/* FortressQL: PQC TLS mode */
+	{
+		{"ssl_pqc_mode", PGC_SIGHUP, CONN_AUTH_SSL,
+			gettext_noop("Controls post-quantum cryptography mode for SSL."),
+			gettext_noop("\"off\" disables PQC, \"hybrid\" combines PQC with classical "
+						 "algorithms (recommended), \"pqc-only\" uses only PQC algorithms."),
+			GUC_SUPERUSER_ONLY
+		},
+		&ssl_pqc_mode,
+		PQC_TLS_HYBRID,
+		ssl_pqc_mode_options,
 		NULL, NULL, NULL
 	},
 

@@ -61,6 +61,9 @@ typedef struct PgBackendSSLStatus
 	char		ssl_client_serial[NAMEDATALEN];
 
 	char		ssl_issuer_dn[NAMEDATALEN];
+
+	/* FortressQL: PQC key exchange group used for this connection */
+	char		ssl_pqc_group[NAMEDATALEN];
 } PgBackendSSLStatus;
 
 /*

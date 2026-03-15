@@ -348,6 +348,9 @@ pgstat_bestart(void)
 		be_tls_get_peer_subject_name(MyProcPort, lsslstatus.ssl_client_dn, NAMEDATALEN);
 		be_tls_get_peer_serial(MyProcPort, lsslstatus.ssl_client_serial, NAMEDATALEN);
 		be_tls_get_peer_issuer_name(MyProcPort, lsslstatus.ssl_issuer_dn, NAMEDATALEN);
+
+		/* FortressQL: Capture negotiated key exchange group */
+		be_tls_get_pqc_group(MyProcPort, lsslstatus.ssl_pqc_group, NAMEDATALEN);
 	}
 	else
 	{

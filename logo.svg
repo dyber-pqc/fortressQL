@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a1628"/>
+      <stop offset="100%" stop-color="#1a3a2a"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2dd4a8"/>
+      <stop offset="100%" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="key" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="tree1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#166534"/>
+      <stop offset="100%" stop-color="#14532d"/>
+    </linearGradient>
+    <linearGradient id="tree2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#15803d"/>
+      <stop offset="100%" stop-color="#166534"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="250" fill="url(#sky)" stroke="#2dd4a8" stroke-width="4"/>
+
+  <!-- Forest - Back row of trees -->
+  <!-- Tree far left -->
+  <polygon points="80,340 105,240 130,340" fill="url(#tree1)" opacity="0.6"/>
+  <polygon points="85,300 105,220 125,300" fill="url(#tree1)" opacity="0.5"/>
+
+  <!-- Tree left-center back -->
+  <polygon points="140,340 170,210 200,340" fill="url(#tree1)" opacity="0.7"/>
+  <polygon points="148,280 170,190 192,280" fill="url(#tree1)" opacity="0.6"/>
+
+  <!-- Tree right-center back -->
+  <polygon points="310,340 340,210 370,340" fill="url(#tree1)" opacity="0.7"/>
+  <polygon points="318,280 340,190 362,280" fill="url(#tree1)" opacity="0.6"/>
+
+  <!-- Tree far right -->
+  <polygon points="380,340 405,240 430,340" fill="url(#tree1)" opacity="0.6"/>
+  <polygon points="385,300 405,220 425,300" fill="url(#tree1)" opacity="0.5"/>
+
+  <!-- Forest - Front row of trees -->
+  <!-- Tree left -->
+  <polygon points="100,360 140,230 180,360" fill="url(#tree2)"/>
+  <polygon points="110,310 140,210 170,310" fill="url(#tree2)" opacity="0.9"/>
+  <rect x="135" y="360" width="10" height="25" fill="#5c3a1e"/>
+
+  <!-- Tree right -->
+  <polygon points="330,360 370,230 410,360" fill="url(#tree2)"/>
+  <polygon points="340,310 370,210 400,310" fill="url(#tree2)" opacity="0.9"/>
+  <rect x="365" y="360" width="10" height="25" fill="#5c3a1e"/>
+
+  <!-- Ground -->
+  <ellipse cx="256" cy="395" rx="200" ry="30" fill="#14532d" opacity="0.8"/>
+
+  <!-- Shield / Database shape (center) -->
+  <path d="M256,120 C310,120 350,135 350,155 L350,280 C350,330 256,370 256,370 C256,370 162,330 162,280 L162,155 C162,135 202,120 256,120 Z" fill="url(#shield)" opacity="0.9" stroke="#34d399" stroke-width="2"/>
+
+  <!-- Database cylinder lines on shield -->
+  <ellipse cx="256" cy="155" rx="94" ry="20" fill="none" stroke="#a7f3d0" stroke-width="1.5" opacity="0.6"/>
+  <path d="M162,195 C162,210 202,225 256,225 C310,225 350,210 350,195" fill="none" stroke="#a7f3d0" stroke-width="1.5" opacity="0.5"/>
+  <path d="M165,235 C170,250 210,265 256,265 C302,265 340,250 347,235" fill="none" stroke="#a7f3d0" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- Quantum Key icon (center of shield) -->
+  <g transform="translate(256,210)" filter="url(#glow)">
+    <!-- Key head (circle with lattice pattern) -->
+    <circle cx="0" cy="0" r="28" fill="none" stroke="url(#key)" stroke-width="3"/>
+    <circle cx="0" cy="0" r="18" fill="none" stroke="url(#key)" stroke-width="2" opacity="0.7"/>
+    <!-- Lattice dots representing quantum lattice -->
+    <circle cx="-10" cy="-10" r="3" fill="#fbbf24"/>
+    <circle cx="10" cy="-10" r="3" fill="#fbbf24"/>
+    <circle cx="-10" cy="10" r="3" fill="#fbbf24"/>
+    <circle cx="10" cy="10" r="3" fill="#fbbf24"/>
+    <circle cx="0" cy="0" r="3" fill="#fbbf24"/>
+    <!-- Lattice lines -->
+    <line x1="-10" y1="-10" x2="10" y2="-10" stroke="#fbbf24" stroke-width="1" opacity="0.5"/>
+    <line x1="-10" y1="10" x2="10" y2="10" stroke="#fbbf24" stroke-width="1" opacity="0.5"/>
+    <line x1="-10" y1="-10" x2="-10" y2="10" stroke="#fbbf24" stroke-width="1" opacity="0.5"/>
+    <line x1="10" y1="-10" x2="10" y2="10" stroke="#fbbf24" stroke-width="1" opacity="0.5"/>
+    <!-- Key shaft -->
+    <line x1="0" y1="28" x2="0" y2="75" stroke="url(#key)" stroke-width="3" stroke-linecap="round"/>
+    <!-- Key teeth -->
+    <line x1="0" y1="60" x2="12" y2="60" stroke="url(#key)" stroke-width="3" stroke-linecap="round"/>
+    <line x1="0" y1="70" x2="8" y2="70" stroke="url(#key)" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- Orbiting quantum particles -->
+  <circle cx="200" cy="160" r="3" fill="#67e8f9" opacity="0.8">
+    <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="312" cy="175" r="2.5" fill="#67e8f9" opacity="0.6">
+    <animate attributeName="opacity" values="0.5;1;0.5" dur="1.5s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="230" cy="310" r="2" fill="#a78bfa" opacity="0.7">
+    <animate attributeName="opacity" values="0.4;1;0.4" dur="2.5s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="290" cy="140" r="2" fill="#a78bfa" opacity="0.5">
+    <animate attributeName="opacity" values="0.6;1;0.6" dur="1.8s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Text: FortressQL -->
+  <text x="256" y="450" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-weight="bold" font-size="42" fill="#e2e8f0" letter-spacing="3">
+    FortressQL
+  </text>
+  <text x="256" y="475" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="13" fill="#94a3b8" letter-spacing="5">
+    POST-QUANTUM DATABASE
+  </text>
+</svg>

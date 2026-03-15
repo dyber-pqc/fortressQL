@@ -1018,6 +1018,35 @@ initialize_SSL(PGconn *conn)
 	}
 
 	/*
+	 * FortressQL: Configure PQC key exchange groups for the client.
+	 *
+	 * When sslpqcmode is not "off", configure PQC hybrid groups for the TLS
+	 * key exchange. Falls back gracefully if PQC groups are not available
+	 * (e.g., older OpenSSL without oqs-provider).
+	 */
+	if (conn->sslpqcmode == NULL ||
+		strcmp(conn->sslpqcmode, "off") != 0)
+	{
+		const char *groups = conn->sslpqcgroups;
+
+		if (groups == NULL || groups[0] == '\0')
+			groups = "X25519MLKEM768:X25519:prime256v1";
+
+		if (!SSL_CTX_set1_groups_list(SSL_context, groups))
+		{
+			/*
+			 * PQC groups might not be available. Fall back to classical
+			 * groups rather than failing the connection entirely.
+			 */
+			char	   *err = SSLerrmessage(ERR_get_error());
+
+			SSLerrfree(err);
+			SSL_CTX_set1_groups_list(SSL_context,
+									"X25519:prime256v1:secp384r1");
+		}
+	}
+
+	/*
 	 * Disable OpenSSL's moving-write-buffer sanity check, because it causes
 	 * unnecessary failures in nonblocking send cases.
 	 */

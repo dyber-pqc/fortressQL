@@ -312,6 +312,9 @@ extern void be_tls_get_peer_subject_name(Port *port, char *ptr, size_t len);
 extern void be_tls_get_peer_issuer_name(Port *port, char *ptr, size_t len);
 extern void be_tls_get_peer_serial(Port *port, char *ptr, size_t len);
 
+/* FortressQL: Get the negotiated key exchange group name */
+extern void be_tls_get_pqc_group(Port *port, char *ptr, size_t len);
+
 /*
  * Get the server certificate hash for SCRAM channel binding type
  * tls-server-end-point.

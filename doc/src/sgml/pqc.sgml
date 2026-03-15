@@ -1,0 +1,265 @@
+<!-- doc/src/sgml/pqc.sgml -->
+<chapter id="pqc">
+ <title>FortressQL: Post-Quantum Cryptography</title>
+
+ <indexterm zone="pqc">
+  <primary>post-quantum cryptography</primary>
+ </indexterm>
+
+ <para>
+  FortressQL extends PostgreSQL with comprehensive post-quantum cryptography
+  (PQC) support across all layers: TLS transport, authentication, and
+  application-level encryption.  This protects against the "harvest now,
+  decrypt later" threat where data encrypted today with classical algorithms
+  can be stored and decrypted once quantum computers mature.
+ </para>
+
+ <para>
+  FortressQL integrates the NIST-standardized PQC algorithms:
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    <emphasis>ML-KEM</emphasis> (FIPS 203) &mdash; Module-Lattice Key
+    Encapsulation Mechanism, for key exchange (ML-KEM-512, ML-KEM-768,
+    ML-KEM-1024).
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis>ML-DSA</emphasis> (FIPS 204) &mdash; Module-Lattice Digital
+    Signature Algorithm (ML-DSA-44, ML-DSA-65, ML-DSA-87).
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis>SLH-DSA</emphasis> (FIPS 205) &mdash; Stateless Hash-Based
+    Digital Signature Algorithm (12 variants with SHA-2 and SHAKE).
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <sect1 id="pqc-build">
+  <title>Building with PQC Support</title>
+
+  <para>
+   PQC support requires <productname>liboqs</productname> (Open Quantum Safe)
+   and <productname>OpenSSL</productname> 3.0 or later.
+  </para>
+
+  <para>
+   To enable PQC support:
+  </para>
+
+<programlisting>
+meson setup build -Dssl=openssl -Dpqc=enabled
+meson compile -C build
+</programlisting>
+
+  <para>
+   The <literal>-Dpqc=auto</literal> option (default) enables PQC if liboqs
+   is found.  Use <literal>-Dpqc=disabled</literal> to build without PQC
+   support, producing a binary identical to vanilla PostgreSQL.
+  </para>
+ </sect1>
+
+ <sect1 id="pqc-tls">
+  <title>PQC TLS Transport</title>
+
+  <para>
+   FortressQL supports hybrid PQC key exchange using OpenSSL's group
+   negotiation.  This works with both OpenSSL 3.5+ (native PQC) and
+   older versions with the OQS provider.
+  </para>
+
+  <para>
+   The following GUC parameters control PQC TLS:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term><varname>ssl_pqc_mode</varname> (<type>enum</type>)</term>
+    <listitem>
+     <para>
+      Controls PQC key exchange mode.  Values: <literal>off</literal>
+      (classical only), <literal>hybrid</literal> (default, PQC + classical),
+      <literal>pqc-only</literal> (PQC algorithms only).
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><varname>ssl_pqc_groups</varname> (<type>string</type>)</term>
+    <listitem>
+     <para>
+      Colon-separated list of key exchange groups.  Default:
+      <literal>X25519MLKEM768:X25519:prime256v1</literal>.
+      The hybrid group <literal>X25519MLKEM768</literal> combines classical
+      X25519 with ML-KEM-768 for defense in depth.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><varname>ssl_pqc_sigalgs</varname> (<type>string</type>)</term>
+    <listitem>
+     <para>
+      Colon-separated list of TLS signature algorithms.  Default: empty
+      (use OpenSSL defaults).  Set to e.g.
+      <literal>mldsa65:ed25519:rsa_pss_rsae_sha256</literal> for PQC
+      certificate support.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Client connection string example:
+  </para>
+
+<programlisting>
+psql "host=localhost sslmode=require sslpqcgroups=X25519MLKEM768"
+</programlisting>
+
+  <para>
+   The <structname>pg_stat_ssl</structname> view includes a
+   <structfield>pqc_group</structfield> column that shows the negotiated
+   key exchange group for each connection.
+  </para>
+ </sect1>
+
+ <sect1 id="pqc-auth">
+  <title>PQC Authentication</title>
+
+  <para>
+   FortressQL adds two new authentication methods in
+   <filename>pg_hba.conf</filename>:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term><literal>pqc-cert</literal></term>
+    <listitem>
+     <para>
+      Certificate authentication that verifies the client certificate uses
+      a PQC signature algorithm (ML-DSA or SLH-DSA).  Requires
+      <literal>hostssl</literal> connection type.  Works like standard
+      <literal>cert</literal> authentication but rejects certificates signed
+      with classical algorithms.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>pqc-scram-sha-384</literal></term>
+    <listitem>
+     <para>
+      SCRAM authentication using SHA-384 instead of SHA-256, aligned with
+      NIST Level 3 security.  The SASL mechanism names are
+      <literal>SCRAM-SHA-384</literal> and
+      <literal>SCRAM-SHA-384-PLUS</literal> (with channel binding).
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Example <filename>pg_hba.conf</filename> entries:
+  </para>
+
+<programlisting>
+# PQC certificate authentication
+hostssl all all 0.0.0.0/0 pqc-cert
+
+# SCRAM-SHA-384 authentication
+hostssl all all 0.0.0.0/0 pqc-scram-sha-384
+</programlisting>
+ </sect1>
+
+ <sect1 id="pqc-pgcrypto">
+  <title>pgcrypto_pqc Extension</title>
+
+  <para>
+   The <literal>pgcrypto_pqc</literal> extension provides SQL-callable
+   functions for PQC key encapsulation, digital signatures, and hybrid
+   encryption.
+  </para>
+
+<programlisting>
+CREATE EXTENSION pgcrypto_pqc;
+</programlisting>
+
+  <sect2 id="pqc-pgcrypto-kem">
+   <title>Key Encapsulation (ML-KEM)</title>
+
+<programlisting>
+-- Generate a KEM keypair
+SELECT * FROM pqc_kem_keygen('ML-KEM-768');
+
+-- Encapsulate a shared secret
+SELECT * FROM pqc_kem_encapsulate(public_key, 'ML-KEM-768');
+
+-- Decapsulate to recover the shared secret
+SELECT pqc_kem_decapsulate(ciphertext, secret_key, 'ML-KEM-768');
+</programlisting>
+  </sect2>
+
+  <sect2 id="pqc-pgcrypto-sig">
+   <title>Digital Signatures (ML-DSA, SLH-DSA)</title>
+
+<programlisting>
+-- Generate a signature keypair
+SELECT * FROM pqc_sig_keygen('ML-DSA-65');
+
+-- Sign a message
+SELECT pqc_sign('message'::bytea, secret_key, 'ML-DSA-65');
+
+-- Verify a signature
+SELECT pqc_verify('message'::bytea, signature, public_key, 'ML-DSA-65');
+</programlisting>
+  </sect2>
+
+  <sect2 id="pqc-pgcrypto-hybrid">
+   <title>Hybrid Encryption (ML-KEM + AES-256-GCM)</title>
+
+<programlisting>
+-- Encrypt data (returns encrypted_data, encapsulated_key, public_key, secret_key)
+SELECT * FROM pqc_encrypt('sensitive data'::bytea, 'ML-KEM-768');
+
+-- Decrypt data
+SELECT pqc_decrypt(encrypted_data, encapsulated_key, secret_key, 'ML-KEM-768');
+</programlisting>
+
+   <para>
+    Hybrid encryption uses ML-KEM to encapsulate a shared secret, derives
+    an AES-256 key via HKDF-SHA-256, then encrypts the data with
+    AES-256-GCM.
+   </para>
+  </sect2>
+
+  <sect2 id="pqc-pgcrypto-algorithms">
+   <title>Algorithm Discovery</title>
+
+<programlisting>
+-- List all available PQC algorithms
+SELECT * FROM pqc_algorithms();
+</programlisting>
+  </sect2>
+ </sect1>
+
+ <sect1 id="pqc-replication">
+  <title>PQC Cluster Communication</title>
+
+  <para>
+   Streaming replication uses libpq for connections, so the PQC TLS
+   configuration applies automatically.  Configure
+   <varname>primary_conninfo</varname> in <filename>postgresql.conf</filename>
+   on the standby:
+  </para>
+
+<programlisting>
+primary_conninfo = 'host=primary sslmode=verify-full sslpqcmode=hybrid sslpqcgroups=X25519MLKEM768'
+</programlisting>
+ </sect1>
+</chapter>

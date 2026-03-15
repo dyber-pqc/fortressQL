@@ -24,6 +24,9 @@ extern void ClientAuthentication(Port *port);
 extern void sendAuthRequest(Port *port, AuthRequest areq, const char *extradata,
 							int extralen);
 
+/* FortressQL: exposed for use by auth-pqc.c */
+extern void set_authn_id(Port *port, const char *id);
+
 /* Hook for plugins to get control in ClientAuthentication() */
 typedef void (*ClientAuthentication_hook_type) (Port *, int);
 extern PGDLLIMPORT ClientAuthentication_hook_type ClientAuthentication_hook;

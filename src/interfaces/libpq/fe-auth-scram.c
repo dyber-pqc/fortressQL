@@ -109,8 +109,22 @@ scram_init(PGconn *conn,
 	memset(state, 0, sizeof(fe_scram_state));
 	state->conn = conn;
 	state->state = FE_SCRAM_INIT;
-	state->key_length = SCRAM_SHA_256_KEY_LEN;
-	state->hash_type = PG_SHA256;
+
+	/*
+	 * FortressQL: Set hash type based on selected SASL mechanism.
+	 * SCRAM-SHA-384 uses SHA-384 with 48-byte keys for NIST Level 3.
+	 */
+	if (strcmp(sasl_mechanism, SCRAM_SHA_384_NAME) == 0 ||
+		strcmp(sasl_mechanism, SCRAM_SHA_384_PLUS_NAME) == 0)
+	{
+		state->key_length = SCRAM_SHA_384_KEY_LEN;
+		state->hash_type = PG_SHA384;
+	}
+	else
+	{
+		state->key_length = SCRAM_SHA_256_KEY_LEN;
+		state->hash_type = PG_SHA256;
+	}
 
 	state->sasl_mechanism = strdup(sasl_mechanism);
 	if (!state->sasl_mechanism)
@@ -164,7 +178,8 @@ scram_channel_bound(void *opaq)
 		return false;
 
 	/* channel binding mechanism not used */
-	if (strcmp(state->sasl_mechanism, SCRAM_SHA_256_PLUS_NAME) != 0)
+	if (strcmp(state->sasl_mechanism, SCRAM_SHA_256_PLUS_NAME) != 0 &&
+		strcmp(state->sasl_mechanism, SCRAM_SHA_384_PLUS_NAME) != 0)
 		return false;
 
 	/* all clear! */

@@ -45,7 +45,7 @@
  */
 static void auth_failed(Port *port, int status, const char *logdetail);
 static char *recv_password_packet(Port *port);
-static void set_authn_id(Port *port, const char *id);
+/* Not static — also called from auth-pqc.c (FortressQL) */
 
 
 /*----------------------------------------------------------------
@@ -162,6 +162,14 @@ auth_password_hook_typ ldap_password_hook = dummy_ldap_password_mutator;
  */
 #ifdef USE_SSL
 static int	CheckCertAuth(Port *port);
+#endif
+
+/*----------------------------------------------------------------
+ * FortressQL: PQC Certificate Authentication
+ *----------------------------------------------------------------
+ */
+#ifdef USE_PQC
+extern int	CheckPQCCertAuth(Port *port);
 #endif
 
 
@@ -313,6 +321,15 @@ auth_failed(Port *port, int status, const char *logdetail)
 		case uaRADIUS:
 			errstr = gettext_noop("RADIUS authentication failed for user \"%s\"");
 			break;
+#ifdef USE_PQC
+		case uaPQCCert:
+			errstr = gettext_noop("PQC certificate authentication failed for user \"%s\"");
+			break;
+		case uaPQCSCRAM:
+			errstr = gettext_noop("PQC-SCRAM-SHA-384 authentication failed for user \"%s\"");
+			errcode_return = ERRCODE_INVALID_PASSWORD;
+			break;
+#endif
 		default:
 			errstr = gettext_noop("authentication failed for user \"%s\": invalid authentication method");
 			break;
@@ -348,7 +365,7 @@ auth_failed(Port *port, int status, const char *logdetail)
  * lifetime of MyClientConnectionInfo, so it is safe to pass a string that is
  * managed by an external library.
  */
-static void
+void
 set_authn_id(Port *port, const char *id)
 {
 	Assert(id);
@@ -635,6 +652,37 @@ ClientAuthentication(Port *port)
 		case uaTrust:
 			status = STATUS_OK;
 			break;
+
+#ifdef USE_PQC
+		case uaPQCCert:
+			/*
+			 * FortressQL: PQC certificate authentication.
+			 * Like uaCert but additionally verifies that the client
+			 * certificate uses a post-quantum signature algorithm
+			 * (ML-DSA or SLH-DSA).
+			 */
+#ifdef USE_SSL
+			if (!port->ssl_in_use)
+			{
+				ereport(LOG,
+						(errmsg("PQC certificate authentication requires SSL")));
+				status = STATUS_ERROR;
+			}
+			else
+				status = CheckPQCCertAuth(port);
+#else
+			Assert(false);
+#endif
+			break;
+
+		case uaPQCSCRAM:
+			/*
+			 * FortressQL: PQC-SCRAM-SHA-384 authentication.
+			 * Uses SCRAM with SHA-384 for NIST Level 3 alignment.
+			 */
+			status = CheckPWChallengeAuth(port, &logdetail);
+			break;
+#endif							/* USE_PQC */
 	}
 
 	if ((status == STATUS_OK && port->hba->clientcert == clientCertFull)

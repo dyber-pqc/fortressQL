@@ -20,14 +20,21 @@
 #define SCRAM_SHA_256_NAME "SCRAM-SHA-256"
 #define SCRAM_SHA_256_PLUS_NAME "SCRAM-SHA-256-PLUS"	/* with channel binding */
 
+/* FortressQL: SCRAM-SHA-384 mechanism names */
+#define SCRAM_SHA_384_NAME "SCRAM-SHA-384"
+#define SCRAM_SHA_384_PLUS_NAME "SCRAM-SHA-384-PLUS"	/* with channel binding */
+
 /* Length of SCRAM keys (client and server) */
 #define SCRAM_SHA_256_KEY_LEN				PG_SHA256_DIGEST_LENGTH
+
+/* FortressQL: SHA-384 key length for NIST Level 3 alignment */
+#define SCRAM_SHA_384_KEY_LEN				PG_SHA384_DIGEST_LENGTH
 
 /*
  * Size of buffers used internally by SCRAM routines, that should be the
  * maximum of SCRAM_SHA_*_KEY_LEN among the hash methods supported.
  */
-#define SCRAM_MAX_KEY_LEN					SCRAM_SHA_256_KEY_LEN
+#define SCRAM_MAX_KEY_LEN					SCRAM_SHA_384_KEY_LEN
 
 /*
  * Size of random nonce generated in the authentication exchange.  This
@@ -48,6 +55,12 @@
  * 4096 per RFC 7677.
  */
 #define SCRAM_SHA_256_DEFAULT_ITERATIONS	4096
+
+/*
+ * FortressQL: Default iterations for SCRAM-SHA-384.
+ * Higher than SHA-256 default for stronger security posture.
+ */
+#define SCRAM_SHA_384_DEFAULT_ITERATIONS	4096
 
 extern int	scram_SaltedPassword(const char *password,
 								 pg_cryptohash_type hash_type, int key_length,

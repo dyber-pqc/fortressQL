@@ -34,4 +34,7 @@ extern bool parse_scram_secret(const char *secret,
 extern bool scram_verify_plain_password(const char *username,
 										const char *password, const char *secret);
 
+/* FortressQL: SCRAM-SHA-384 secret builder */
+extern char *pg_be_scram_build_secret_sha384(const char *password);
+
 #endif							/* PG_SCRAM_H */

@@ -330,6 +330,15 @@ static const internalPQconninfoOption PQconninfoOptions[] = {
 		"SSL-Maximum-Protocol-Version", "", 8,	/* sizeof("TLSv1.x") == 8 */
 	offsetof(struct pg_conn, ssl_max_protocol_version)},
 
+	/* FortressQL: Post-Quantum Cryptography connection parameters */
+	{"sslpqcgroups", "PGSSLPQCGROUPS", NULL, NULL,
+		"SSL-PQC-Groups", "", 64,
+	offsetof(struct pg_conn, sslpqcgroups)},
+
+	{"sslpqcmode", "PGSSLPQCMODE", "hybrid", NULL,
+		"SSL-PQC-Mode", "", 10,
+	offsetof(struct pg_conn, sslpqcmode)},
+
 	/*
 	 * As with SSL, all GSS options are exposed even in builds that don't have
 	 * support.

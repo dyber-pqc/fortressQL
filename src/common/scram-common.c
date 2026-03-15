@@ -220,9 +220,10 @@ scram_build_secret(pg_cryptohash_type hash_type, int key_length,
 	int			encoded_stored_len;
 	int			encoded_server_len;
 	int			encoded_result;
+	const char *scheme_name;
 
-	/* Only this hash method is supported currently */
-	Assert(hash_type == PG_SHA256);
+	/* Supported hash methods: SHA-256 and SHA-384 (FortressQL) */
+	Assert(hash_type == PG_SHA256 || hash_type == PG_SHA384);
 
 	Assert(iterations > 0);
 
@@ -248,14 +249,16 @@ scram_build_secret(pg_cryptohash_type hash_type, int key_length,
 
 	/*----------
 	 * The format is:
-	 * SCRAM-SHA-256$<iteration count>:<salt>$<StoredKey>:<ServerKey>
+	 * SCRAM-SHA-{256,384}$<iteration count>:<salt>$<StoredKey>:<ServerKey>
 	 *----------
 	 */
 	encoded_salt_len = pg_b64_enc_len(saltlen);
 	encoded_stored_len = pg_b64_enc_len(key_length);
 	encoded_server_len = pg_b64_enc_len(key_length);
 
-	maxlen = strlen("SCRAM-SHA-256") + 1
+	scheme_name = (hash_type == PG_SHA384) ? "SCRAM-SHA-384" : "SCRAM-SHA-256";
+
+	maxlen = strlen(scheme_name) + 1
 		+ 10 + 1				/* iteration count */
 		+ encoded_salt_len + 1	/* Base64-encoded salt */
 		+ encoded_stored_len + 1	/* Base64-encoded StoredKey */
@@ -272,7 +275,7 @@ scram_build_secret(pg_cryptohash_type hash_type, int key_length,
 	result = palloc(maxlen);
 #endif
 
-	p = result + sprintf(result, "SCRAM-SHA-256$%d:", iterations);
+	p = result + sprintf(result, "%s$%d:", scheme_name, iterations);
 
 	/* salt */
 	encoded_result = pg_b64_encode(salt, saltlen, p, encoded_salt_len);

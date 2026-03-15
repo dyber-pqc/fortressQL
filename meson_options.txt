@@ -162,6 +162,9 @@ option('zlib', type: 'feature', value: 'auto',
 option('zstd', type: 'feature', value: 'auto',
   description: 'Enable zstd')
 
+option('pqc', type: 'feature', value: 'auto',
+  description: 'Post-quantum cryptography support via liboqs (FortressQL)')
+
 
 # Programs
 

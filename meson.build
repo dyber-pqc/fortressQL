@@ -6,7 +6,7 @@
 #  - https://mesonbuild.com/Syntax.html
 #  - https://mesonbuild.com/Reference-manual.html
 
-project('postgresql',
+project('fortressql',
   ['c'],
   version: '17.9',
   license: 'PostgreSQL',
@@ -137,12 +137,12 @@ pg_version_num = (pg_version_major * 10000) + pg_version_minor
 
 pg_url = 'https://www.postgresql.org/'
 
-cdata.set_quoted('PACKAGE_NAME', 'PostgreSQL')
+cdata.set_quoted('PACKAGE_NAME', 'FortressQL')
 cdata.set_quoted('PACKAGE_BUGREPORT', 'pgsql-bugs@lists.postgresql.org')
 cdata.set_quoted('PACKAGE_URL', pg_url)
 cdata.set_quoted('PACKAGE_VERSION', pg_version)
-cdata.set_quoted('PACKAGE_STRING', 'PostgreSQL @0@'.format(pg_version))
-cdata.set_quoted('PACKAGE_TARNAME', 'postgresql')
+cdata.set_quoted('PACKAGE_STRING', 'FortressQL @0@ (based on PostgreSQL)'.format(pg_version))
+cdata.set_quoted('PACKAGE_TARNAME', 'fortressql')
 
 pg_version += get_option('extra_version')
 cdata.set_quoted('PG_VERSION', pg_version)
@@ -1443,6 +1443,65 @@ endif
 
 if sslopt == 'auto' and auto_features.enabled() and not ssl.found()
   error('no SSL library found')
+endif
+
+
+
+###############################################################
+# Library: liboqs (Post-Quantum Cryptography) - FortressQL
+###############################################################
+
+pqcopt = get_option('pqc')
+liboqs = not_found_dep
+
+if not pqcopt.disabled()
+  # PQC support requires OpenSSL
+  if not ssl.found()
+    if pqcopt.enabled()
+      error('PQC support requires OpenSSL. Configure with -Dssl=openssl -Dpqc=enabled')
+    endif
+  else
+    # Try pkg-config first
+    liboqs = dependency('liboqs', required: false)
+
+    # Fallback to manual library search
+    if not liboqs.found()
+      oqs_lib = cc.find_library('oqs',
+        dirs: test_lib_d,
+        required: pqcopt.enabled(),
+        has_headers: ['oqs/oqs.h'],
+        header_include_directories: postgres_inc,
+      )
+      if oqs_lib.found()
+        liboqs = declare_dependency(
+          dependencies: [oqs_lib],
+          include_directories: postgres_inc,
+        )
+      endif
+    endif
+
+    # Verify critical liboqs functions exist
+    if liboqs.found()
+      pqc_funcs_ok = true
+      foreach func : ['OQS_KEM_new', 'OQS_SIG_new', 'OQS_init']
+        if not cc.has_function(func, args: test_c_args,
+            dependencies: liboqs.found() ? [liboqs] : [])
+          pqc_funcs_ok = false
+          if pqcopt.enabled()
+            error('liboqs found but missing function @0@'.format(func))
+          endif
+          break
+        endif
+      endforeach
+
+      if pqc_funcs_ok
+        cdata.set('USE_PQC', 1,
+          description: 'Define to 1 to build with Post-Quantum Cryptography support via liboqs (FortressQL)')
+      else
+        liboqs = not_found_dep
+      endif
+    endif
+  endif
 endif
 
 
@@ -3160,6 +3219,7 @@ libpq_deps += [
   ldap_r,
   libintl,
   ssl,
+  liboqs,
 ]
 
 subdir('src/interfaces/libpq')
@@ -3186,6 +3246,7 @@ backend_both_deps += [
   lz4,
   pam,
   ssl,
+  liboqs,
   systemd,
   zlib,
   zstd,
@@ -3840,6 +3901,7 @@ if meson.version().version_compare('>=0.57')
       'lz4': lz4,
       'nls': libintl,
       'openssl': ssl,
+      'liboqs (PQC)': liboqs,
       'pam': pam,
       'plperl': perl_dep,
       'plpython': python3_dep,

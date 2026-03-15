@@ -99,6 +99,7 @@
 #include "common/scram-common.h"
 #include "common/sha2.h"
 #include "libpq/crypt.h"
+#include "libpq/hba.h"
 #include "libpq/sasl.h"
 #include "libpq/scram.h"
 
@@ -206,6 +207,26 @@ scram_get_mechanisms(Port *port, StringInfo buf)
 	 * channel-binding variants go first, if they are supported.  Channel
 	 * binding is only supported with SSL.
 	 */
+
+#ifdef USE_PQC
+	/*
+	 * FortressQL: If the auth method is pqc-scram-sha-384, advertise
+	 * SCRAM-SHA-384 mechanisms first (preferred), then fall back to SHA-256.
+	 */
+	if (port->hba->auth_method == uaPQCSCRAM)
+	{
+#ifdef USE_SSL
+		if (port->ssl_in_use)
+		{
+			appendStringInfoString(buf, SCRAM_SHA_384_PLUS_NAME);
+			appendStringInfoChar(buf, '\0');
+		}
+#endif
+		appendStringInfoString(buf, SCRAM_SHA_384_NAME);
+		appendStringInfoChar(buf, '\0');
+	}
+#endif							/* USE_PQC */
+
 #ifdef USE_SSL
 	if (port->ssl_in_use)
 	{
@@ -250,6 +271,26 @@ scram_init(Port *port, const char *selected_mech, const char *shadow_pass)
 	 * place.  If the client nevertheless tries to select it, it's a protocol
 	 * violation like selecting any other SASL mechanism we don't support.
 	 */
+
+	/* FortressQL: Check SCRAM-SHA-384 mechanisms first */
+#ifdef USE_PQC
+#ifdef USE_SSL
+	if (strcmp(selected_mech, SCRAM_SHA_384_PLUS_NAME) == 0 && port->ssl_in_use)
+	{
+		state->channel_binding_in_use = true;
+		state->hash_type = PG_SHA384;
+		state->key_length = SCRAM_SHA_384_KEY_LEN;
+	}
+	else
+#endif
+	if (strcmp(selected_mech, SCRAM_SHA_384_NAME) == 0)
+	{
+		state->channel_binding_in_use = false;
+		state->hash_type = PG_SHA384;
+		state->key_length = SCRAM_SHA_384_KEY_LEN;
+	}
+	else
+#endif							/* USE_PQC */
 #ifdef USE_SSL
 	if (strcmp(selected_mech, SCRAM_SHA_256_PLUS_NAME) == 0 && port->ssl_in_use)
 		state->channel_binding_in_use = true;
@@ -269,7 +310,11 @@ scram_init(Port *port, const char *selected_mech, const char *shadow_pass)
 	{
 		int			password_type = get_password_type(shadow_pass);
 
-		if (password_type == PASSWORD_TYPE_SCRAM_SHA_256)
+		if (password_type == PASSWORD_TYPE_SCRAM_SHA_256
+#ifdef USE_PQC
+			|| password_type == PASSWORD_TYPE_SCRAM_SHA_384
+#endif
+			)
 		{
 			if (parse_scram_secret(shadow_pass, &state->iterations,
 								   &state->hash_type, &state->key_length,
@@ -504,6 +549,38 @@ pg_be_scram_build_secret(const char *password)
 }
 
 /*
+ * FortressQL: Build a SCRAM-SHA-384 secret for storage in pg_authid.
+ */
+char *
+pg_be_scram_build_secret_sha384(const char *password)
+{
+	char	   *prep_password;
+	pg_saslprep_rc rc;
+	char		saltbuf[SCRAM_DEFAULT_SALT_LEN];
+	char	   *result;
+	const char *errstr = NULL;
+
+	rc = pg_saslprep(password, &prep_password);
+	if (rc == SASLPREP_SUCCESS)
+		password = (const char *) prep_password;
+
+	if (!pg_strong_random(saltbuf, SCRAM_DEFAULT_SALT_LEN))
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("could not generate random salt")));
+
+	result = scram_build_secret(PG_SHA384, SCRAM_SHA_384_KEY_LEN,
+								saltbuf, SCRAM_DEFAULT_SALT_LEN,
+								SCRAM_SHA_384_DEFAULT_ITERATIONS, password,
+								&errstr);
+
+	if (prep_password)
+		pfree(prep_password);
+
+	return result;
+}
+
+/*
  * Verify a plaintext password against a SCRAM secret.  This is used when
  * performing plaintext password authentication for a user that has a SCRAM
  * secret stored in pg_authid.
@@ -620,10 +697,20 @@ parse_scram_secret(const char *secret, int *iterations,
 		goto invalid_secret;
 
 	/* Parse the fields */
-	if (strcmp(scheme_str, "SCRAM-SHA-256") != 0)
+	if (strcmp(scheme_str, "SCRAM-SHA-256") == 0)
+	{
+		*hash_type = PG_SHA256;
+		*key_length = SCRAM_SHA_256_KEY_LEN;
+	}
+#ifdef USE_PQC
+	else if (strcmp(scheme_str, "SCRAM-SHA-384") == 0)
+	{
+		*hash_type = PG_SHA384;
+		*key_length = SCRAM_SHA_384_KEY_LEN;
+	}
+#endif
+	else
 		goto invalid_secret;
-	*hash_type = PG_SHA256;
-	*key_length = SCRAM_SHA_256_KEY_LEN;
 
 	errno = 0;
 	*iterations = strtol(iterations_str, &p, 10);
@@ -688,9 +775,22 @@ mock_scram_secret(const char *username, pg_cryptohash_type *hash_type,
 	char	   *encoded_salt;
 	int			encoded_len;
 
-	/* Enforce the use of SHA-256, which would be realistic enough */
-	*hash_type = PG_SHA256;
-	*key_length = SCRAM_SHA_256_KEY_LEN;
+	/*
+	 * Enforce a realistic hash type.  If hash_type is already set to SHA-384
+	 * (from the mechanism selection), keep it; otherwise default to SHA-256.
+	 */
+#ifdef USE_PQC
+	if (*hash_type == PG_SHA384)
+	{
+		/* Already set by scram_init for SCRAM-SHA-384 */
+		*key_length = SCRAM_SHA_384_KEY_LEN;
+	}
+	else
+#endif
+	{
+		*hash_type = PG_SHA256;
+		*key_length = SCRAM_SHA_256_KEY_LEN;
+	}
 
 	/*
 	 * Generate deterministic salt.
@@ -715,7 +815,12 @@ mock_scram_secret(const char *username, pg_cryptohash_type *hash_type,
 	encoded_salt[encoded_len] = '\0';
 
 	*salt = encoded_salt;
-	*iterations = SCRAM_SHA_256_DEFAULT_ITERATIONS;
+#ifdef USE_PQC
+	if (*hash_type == PG_SHA384)
+		*iterations = SCRAM_SHA_384_DEFAULT_ITERATIONS;
+	else
+#endif
+		*iterations = SCRAM_SHA_256_DEFAULT_ITERATIONS;
 
 	/* StoredKey and ServerKey are not used in a doomed authentication */
 	memset(stored_key, 0, SCRAM_MAX_KEY_LEN);

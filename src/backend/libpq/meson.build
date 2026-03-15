@@ -27,6 +27,10 @@ if gssapi.found()
   )
 endif
 
+if liboqs.found()
+  backend_sources += files('auth-pqc.c')
+endif
+
 install_data(
   'pg_hba.conf.sample',
   'pg_ident.conf.sample',

@@ -29,6 +29,9 @@ typedef enum PasswordType
 	PASSWORD_TYPE_PLAINTEXT = 0,
 	PASSWORD_TYPE_MD5,
 	PASSWORD_TYPE_SCRAM_SHA_256,
+#ifdef USE_PQC
+	PASSWORD_TYPE_SCRAM_SHA_384,	/* FortressQL: SCRAM-SHA-384 */
+#endif
 } PasswordType;
 
 extern PasswordType get_password_type(const char *shadow_pass);
