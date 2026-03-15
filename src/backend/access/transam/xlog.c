@@ -106,6 +106,10 @@
 #include "utils/timestamp.h"
 #include "utils/varlena.h"
 
+#ifdef USE_PQC
+#include "crypto/pqc/pqc_wal_keys.h"
+#endif
+
 extern uint32 bootstrap_data_checksum_version;
 
 /* timeline ID to be used when bootstrapping */
@@ -2280,6 +2284,131 @@ XLogCheckpointNeeded(XLogSegNo new_segno)
 	return false;
 }
 
+#ifdef USE_PQC
+/*
+ * XLogPqcSignSegment
+ *
+ * Sign a completed WAL segment file using the loaded PQC signing key.
+ * The signature is written to pg_wal/<segment>.sig alongside the segment.
+ *
+ * This is called after a segment has been fully written and fsynced.
+ * Runs outside any critical section.
+ */
+static void
+XLogPqcSignSegment(XLogSegNo segno, TimeLineID tli)
+{
+	char		segpath[MAXPGPATH];
+	char		sigpath[MAXPGPATH];
+	FILE	   *seg_fp;
+	FILE	   *sig_fp;
+	struct stat seg_stat;
+	uint8	   *seg_data;
+	size_t		seg_len;
+	uint8	   *sig_buf;
+	size_t		sig_len;
+	size_t		max_sig_len;
+	int			rc;
+
+	/* Build segment file path */
+	XLogFilePath(segpath, tli, segno, wal_segment_size);
+
+	/* Read the entire segment */
+	if (stat(segpath, &seg_stat) != 0)
+	{
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("PQC WAL sign: could not stat segment \"%s\": %m",
+						segpath)));
+		return;
+	}
+
+	seg_len = (size_t) seg_stat.st_size;
+	seg_data = (uint8 *) palloc(seg_len);
+
+	seg_fp = AllocateFile(segpath, "rb");
+	if (seg_fp == NULL)
+	{
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("PQC WAL sign: could not open segment \"%s\": %m",
+						segpath)));
+		pfree(seg_data);
+		return;
+	}
+
+	if (fread(seg_data, 1, seg_len, seg_fp) != seg_len)
+	{
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("PQC WAL sign: could not read segment \"%s\": %m",
+						segpath)));
+		FreeFile(seg_fp);
+		pfree(seg_data);
+		return;
+	}
+	FreeFile(seg_fp);
+
+	/* Allocate buffer for signature */
+	max_sig_len = pqc_sig_max_signature_len(PQC_ALG_ML_DSA_65);
+	if (max_sig_len == 0)
+		max_sig_len = 8192;		/* generous fallback */
+	sig_buf = (uint8 *) palloc(max_sig_len);
+
+	/* Sign the segment data */
+	rc = pqc_wal_sign_data(seg_data, seg_len, sig_buf, &sig_len);
+	pfree(seg_data);
+
+	if (rc != 0)
+	{
+		ereport(WARNING,
+				(errmsg("PQC WAL sign: failed to sign segment \"%s\"",
+						segpath)));
+		pfree(sig_buf);
+		return;
+	}
+
+	/* Write the signature file */
+	snprintf(sigpath, MAXPGPATH, "%s.sig", segpath);
+
+	sig_fp = AllocateFile(sigpath, "wb");
+	if (sig_fp == NULL)
+	{
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("PQC WAL sign: could not create signature file \"%s\": %m",
+						sigpath)));
+		pfree(sig_buf);
+		return;
+	}
+
+	if (fwrite(sig_buf, 1, sig_len, sig_fp) != sig_len)
+	{
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("PQC WAL sign: could not write signature file \"%s\": %m",
+						sigpath)));
+		FreeFile(sig_fp);
+		pfree(sig_buf);
+		return;
+	}
+
+	if (FreeFile(sig_fp) != 0)
+	{
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("PQC WAL sign: could not close signature file \"%s\": %m",
+						sigpath)));
+		pfree(sig_buf);
+		return;
+	}
+
+	pfree(sig_buf);
+
+	ereport(DEBUG1,
+			(errmsg("PQC WAL sign: signed segment \"%s\"", segpath)));
+}
+#endif							/* USE_PQC */
+
 /*
  * Write and/or fsync the log at least as far as WriteRqst indicates.
  *
@@ -2506,6 +2635,15 @@ XLogWrite(XLogwrtRqst WriteRqst, TimeLineID tli, bool flexible)
 					if (XLogCheckpointNeeded(openLogSegNo))
 						RequestCheckpoint(CHECKPOINT_CAUSE_XLOG);
 				}
+
+#ifdef USE_PQC
+				/*
+				 * FortressQL: sign the completed WAL segment with a
+				 * post-quantum digital signature if enabled.
+				 */
+				if (wal_pqc_signing)
+					XLogPqcSignSegment(openLogSegNo, tli);
+#endif
 			}
 		}
 

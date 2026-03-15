@@ -71,10 +71,13 @@
 #define K_VERS_1_16 MAKE_ARCHIVE_VERSION(1, 16, 0)	/* BLOB METADATA entries
 													 * and multiple BLOBS,
 													 * relkind */
+#define K_VERS_1_17 MAKE_ARCHIVE_VERSION(1, 17, 0)	/* FortressQL: PQC
+													 * encryption and signing
+													 * header fields */
 
 /* Current archive version number (the format we can output) */
 #define K_VERS_MAJOR 1
-#define K_VERS_MINOR 16
+#define K_VERS_MINOR 17
 #define K_VERS_REV 0
 #define K_VERS_SELF MAKE_ARCHIVE_VERSION(K_VERS_MAJOR, K_VERS_MINOR, K_VERS_REV)
 
@@ -338,6 +341,20 @@ struct _archiveHandle
 	RestorePass restorePass;	/* used only during parallel restore */
 	struct _tocEntry *currentTE;
 	struct _tocEntry *lastErrorTE;
+
+#ifdef USE_PQC
+	/* FortressQL: PQC encryption/signing state */
+	int			pqc_encrypted;		/* PQC encryption flag */
+	char	   *pqc_kem_algorithm;	/* KEM algorithm name */
+	uint8_t    *pqc_kem_ciphertext;	/* KEM ciphertext */
+	size_t		pqc_kem_ct_len;		/* KEM ciphertext length */
+	uint8_t		pqc_aes_nonce[12];	/* AES-256-GCM nonce */
+
+	int			pqc_signed;			/* PQC signing flag */
+	char	   *pqc_sig_algorithm;	/* SIG algorithm name */
+	uint8_t    *pqc_signature;		/* signature bytes */
+	size_t		pqc_sig_len;		/* signature length */
+#endif
 };
 
 struct _tocEntry

@@ -1374,5 +1374,12 @@ CREATE VIEW pg_stat_subscription_stats AS
     FROM pg_subscription as s,
          pg_stat_get_subscription_stats(s.oid) as ss;
 
+CREATE VIEW pg_crypto_policy_status AS
+    SELECT current_setting('crypto_policy') AS policy,
+           current_setting('password_encryption') AS password_encryption,
+           current_setting('ssl_pqc_mode') AS pqc_tls_mode,
+           current_setting('ssl_pqc_groups') AS pqc_groups,
+           current_setting('ssl_pqc_sigalgs') AS pqc_sigalgs;
+
 CREATE VIEW pg_wait_events AS
     SELECT * FROM pg_get_wait_events();

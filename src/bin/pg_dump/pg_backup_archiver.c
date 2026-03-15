@@ -4002,6 +4002,27 @@ WriteHead(ArchiveHandle *AH)
 	WriteStr(AH, PQdb(AH->connection));
 	WriteStr(AH, AH->public.remoteVersionStr);
 	WriteStr(AH, PG_VERSION);
+
+#ifdef USE_PQC
+	/* FortressQL: Write PQC encryption header fields */
+	AH->WriteBytePtr(AH, AH->pqc_encrypted);
+	if (AH->pqc_encrypted)
+	{
+		WriteStr(AH, AH->pqc_kem_algorithm);
+		WriteInt(AH, (int) AH->pqc_kem_ct_len);
+		if (AH->pqc_kem_ct_len > 0 && AH->pqc_kem_ciphertext != NULL)
+			AH->WriteBufPtr(AH, AH->pqc_kem_ciphertext,
+							AH->pqc_kem_ct_len);
+		AH->WriteBufPtr(AH, AH->pqc_aes_nonce, 12);
+	}
+
+	/* FortressQL: Write PQC signing header fields */
+	AH->WriteBytePtr(AH, AH->pqc_signed);
+	if (AH->pqc_signed)
+	{
+		WriteStr(AH, AH->pqc_sig_algorithm);
+	}
+#endif
 }
 
 void
@@ -4131,6 +4152,33 @@ ReadHead(ArchiveHandle *AH)
 		AH->archiveRemoteVersion = ReadStr(AH);
 		AH->archiveDumpVersion = ReadStr(AH);
 	}
+
+#ifdef USE_PQC
+	/* FortressQL: Read PQC encryption header fields */
+	if (AH->version >= K_VERS_1_17)
+	{
+		AH->pqc_encrypted = AH->ReadBytePtr(AH);
+		if (AH->pqc_encrypted)
+		{
+			AH->pqc_kem_algorithm = ReadStr(AH);
+			AH->pqc_kem_ct_len = (size_t) ReadInt(AH);
+			if (AH->pqc_kem_ct_len > 0)
+			{
+				AH->pqc_kem_ciphertext = pg_malloc(AH->pqc_kem_ct_len);
+				AH->ReadBufPtr(AH, AH->pqc_kem_ciphertext,
+							   AH->pqc_kem_ct_len);
+			}
+			AH->ReadBufPtr(AH, AH->pqc_aes_nonce, 12);
+		}
+
+		/* Read PQC signing header fields */
+		AH->pqc_signed = AH->ReadBytePtr(AH);
+		if (AH->pqc_signed)
+		{
+			AH->pqc_sig_algorithm = ReadStr(AH);
+		}
+	}
+#endif
 }
 
 

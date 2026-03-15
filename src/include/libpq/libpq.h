@@ -144,6 +144,17 @@ typedef enum PqcTlsMode
 	PQC_TLS_PQC_ONLY,
 } PqcTlsMode;
 
+#ifdef USE_PQC
+typedef enum CryptoPolicy {
+	CRYPTO_POLICY_CUSTOM = 0,
+	CRYPTO_POLICY_LEGACY,
+	CRYPTO_POLICY_TRANSITIONAL,
+	CRYPTO_POLICY_FIPS_PQC_LEVEL3,
+	CRYPTO_POLICY_FIPS_PQC_LEVEL5,
+} CryptoPolicy;
+extern PGDLLIMPORT int crypto_policy;
+#endif
+
 /*
  * prototypes for functions in be-secure-common.c
  */

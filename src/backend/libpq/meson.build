@@ -28,7 +28,7 @@ if gssapi.found()
 endif
 
 if liboqs.found()
-  backend_sources += files('auth-pqc.c')
+  backend_sources += files('auth-pqc.c', 'crypto-policy.c')
 endif
 
 install_data(

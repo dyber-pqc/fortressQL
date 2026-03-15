@@ -18,10 +18,22 @@ pg_dump_common_sources = files(
   'pg_backup_utils.c',
 )
 
+# FortressQL: PQC encryption/signing support for dump/restore
+if liboqs.found()
+  pg_dump_common_sources += files(
+    'compress_pqc.c',
+  )
+endif
+
+pg_dump_common_deps = [frontend_code, libpq, lz4, zlib, zstd]
+if liboqs.found()
+  pg_dump_common_deps += [liboqs, ssl]
+endif
+
 pg_dump_common = static_library('libpgdump_common',
   pg_dump_common_sources,
   c_pch: pch_postgres_fe_h,
-  dependencies: [frontend_code, libpq, lz4, zlib, zstd],
+  dependencies: pg_dump_common_deps,
   kwargs: internal_lib_args,
 )
 
@@ -38,10 +50,15 @@ if host_system == 'windows'
     '--FILEDESC', 'pg_dump - backup one PostgreSQL database',])
 endif
 
+pg_dump_exe_deps = [frontend_code, libpq, zlib]
+if liboqs.found()
+  pg_dump_exe_deps += [liboqs, ssl]
+endif
+
 pg_dump = executable('pg_dump',
   pg_dump_sources,
   link_with: [pg_dump_common],
-  dependencies: [frontend_code, libpq, zlib],
+  dependencies: pg_dump_exe_deps,
   kwargs: default_bin_args,
 )
 bin_targets += pg_dump
@@ -60,7 +77,7 @@ endif
 pg_dumpall = executable('pg_dumpall',
   pg_dumpall_sources,
   link_with: [pg_dump_common],
-  dependencies: [frontend_code, libpq, zlib],
+  dependencies: pg_dump_exe_deps,
   kwargs: default_bin_args,
 )
 bin_targets += pg_dumpall
@@ -79,7 +96,7 @@ endif
 pg_restore = executable('pg_restore',
   pg_restore_sources,
   link_with: [pg_dump_common],
-  dependencies: [frontend_code, libpq, zlib],
+  dependencies: pg_dump_exe_deps,
   kwargs: default_bin_args,
 )
 bin_targets += pg_restore

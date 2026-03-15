@@ -58,6 +58,9 @@
 #include "common/connect.h"
 #include "common/relpath.h"
 #include "compress_io.h"
+#ifdef USE_PQC
+#include "compress_pqc.h"
+#endif
 #include "dumputils.h"
 #include "fe_utils/option_utils.h"
 #include "fe_utils/string_utils.h"
@@ -374,6 +377,15 @@ main(int argc, char **argv)
 	bool		user_compression_defined = false;
 	DataDirSyncMethod sync_method = DATA_DIR_SYNC_METHOD_FSYNC;
 
+#ifdef USE_PQC
+	bool		pqc_encrypt = false;
+	const char *pqc_encrypt_key = NULL;
+	const char *pqc_encrypt_algorithm = "ML-KEM-768";
+	bool		pqc_sign = false;
+	const char *pqc_sign_key = NULL;
+	const char *pqc_sign_algorithm = "ML-DSA-65";
+#endif
+
 	static DumpOptions dopt;
 
 	static struct option long_options[] = {
@@ -451,6 +463,15 @@ main(int argc, char **argv)
 		{"filter", required_argument, NULL, 16},
 		{"exclude-extension", required_argument, NULL, 17},
 		{"restrict-key", required_argument, NULL, 25},
+
+#ifdef USE_PQC
+		{"pqc-encrypt", no_argument, NULL, 30},
+		{"pqc-encrypt-key", required_argument, NULL, 31},
+		{"pqc-encrypt-algorithm", required_argument, NULL, 32},
+		{"pqc-sign", no_argument, NULL, 33},
+		{"pqc-sign-key", required_argument, NULL, 34},
+		{"pqc-sign-algorithm", required_argument, NULL, 35},
+#endif
 
 		{NULL, 0, NULL, 0}
 	};
@@ -695,6 +716,32 @@ main(int argc, char **argv)
 				dopt.restrict_key = pg_strdup(optarg);
 				break;
 
+#ifdef USE_PQC
+			case 30:			/* --pqc-encrypt */
+				pqc_encrypt = true;
+				break;
+
+			case 31:			/* --pqc-encrypt-key */
+				pqc_encrypt_key = pg_strdup(optarg);
+				break;
+
+			case 32:			/* --pqc-encrypt-algorithm */
+				pqc_encrypt_algorithm = pg_strdup(optarg);
+				break;
+
+			case 33:			/* --pqc-sign */
+				pqc_sign = true;
+				break;
+
+			case 34:			/* --pqc-sign-key */
+				pqc_sign_key = pg_strdup(optarg);
+				break;
+
+			case 35:			/* --pqc-sign-algorithm */
+				pqc_sign_algorithm = pg_strdup(optarg);
+				break;
+#endif
+
 			default:
 				/* getopt_long already emitted a complaint */
 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
@@ -721,6 +768,24 @@ main(int argc, char **argv)
 	/* --column-inserts implies --inserts */
 	if (dopt.column_inserts && dopt.dump_inserts == 0)
 		dopt.dump_inserts = DUMP_DEFAULT_ROWS_PER_INSERT;
+
+#ifdef USE_PQC
+	/* Validate PQC encryption options */
+	if (pqc_encrypt && pqc_encrypt_key == NULL)
+		pg_fatal("option --pqc-encrypt requires --pqc-encrypt-key");
+	if (pqc_encrypt_key != NULL)
+		pqc_encrypt = true;
+
+	/* Validate PQC signing options */
+	if (pqc_sign && pqc_sign_key == NULL)
+		pg_fatal("option --pqc-sign requires --pqc-sign-key");
+	if (pqc_sign_key != NULL)
+		pqc_sign = true;
+
+	/* PQC encryption requires a non-plaintext format */
+	if (pqc_encrypt && plainText)
+		pg_fatal("PQC encryption is not supported with plain-text output format");
+#endif
 
 	/*
 	 * Binary upgrade mode implies dumping sequence data even in schema-only

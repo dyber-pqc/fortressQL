@@ -123,6 +123,12 @@
 #ssl_pqc_mode = hybrid			# off, hybrid, pqc-only
 #ssl_pqc_groups = 'X25519MLKEM768:X25519:prime256v1'  # PQC key exchange groups
 #ssl_pqc_sigalgs = ''			# PQC signature algorithms (empty = defaults)
+#crypto_policy = custom			# custom, legacy, transitional,
+					# fips-pqc-level3, fips-pqc-level5
+					# Sets a cryptographic policy profile that
+					# cascades password_encryption, ssl_pqc_mode,
+					# ssl_pqc_groups, and ssl_pqc_sigalgs.
+					# "custom" allows manual configuration.
 
 
 #------------------------------------------------------------------------------
@@ -257,6 +263,16 @@
 
 #commit_delay = 0			# range 0-100000, in microseconds
 #commit_siblings = 5			# range 0-1000
+
+# - FortressQL: Post-Quantum WAL Signing -
+
+#wal_pqc_signing = off			# sign WAL segments with PQC signatures
+					# (change requires restart)
+#wal_pqc_signing_algorithm = 'ML-DSA-65'  # PQC signature algorithm
+					# (change requires restart)
+#wal_pqc_key_path = ''			# directory for WAL signing key files
+					# (change requires restart)
+#wal_pqc_verify_on_receive = on		# verify PQC signatures on received WAL
 
 # - Checkpoints -
 

@@ -56,6 +56,13 @@ else
   )
 endif
 
+# FortressQL: PQC common library (KEM, signatures, AES-256-GCM)
+if liboqs.found()
+  common_sources += files(
+    'pqc-common.c',
+  )
+endif
+
 common_kwlist = custom_target('kwlist',
   input: files('../include/parser/kwlist.h'),
   output: 'kwlist_d.h',
@@ -173,7 +180,7 @@ foreach name, opts : pgcommon_variants
       c_pch: pch_c_h,
       include_directories: include_directories('.'),
       kwargs: opts + {
-        'dependencies': opts['dependencies'] + [ssl],
+        'dependencies': opts['dependencies'] + [ssl, liboqs],
       }
     )
   pgcommon += {name: lib}

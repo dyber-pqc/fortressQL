@@ -6,5 +6,7 @@ if liboqs.found()
     'pqc_common.c',
     'pqc_kem.c',
     'pqc_sig.c',
+    'pqc_wal_keys.c',
+    'pqc_wal_verify.c',
   )
 endif

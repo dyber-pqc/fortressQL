@@ -20,7 +20,7 @@
 CREATE FUNCTION pqc_kem_keygen(algorithm text DEFAULT 'ML-KEM-768',
     OUT public_key bytea, OUT secret_key bytea)
 RETURNS record
-AS 'MODULE_PATHNAME', 'pqc_kem_keygen'
+AS 'MODULE_PATHNAME', 'pgcrypto_pqc_kem_keygen'
 LANGUAGE C STRICT VOLATILE;
 
 COMMENT ON FUNCTION pqc_kem_keygen(text) IS
@@ -57,7 +57,7 @@ COMMENT ON FUNCTION pqc_kem_decapsulate(bytea, bytea, text) IS
 CREATE FUNCTION pqc_sig_keygen(algorithm text DEFAULT 'ML-DSA-65',
     OUT public_key bytea, OUT secret_key bytea)
 RETURNS record
-AS 'MODULE_PATHNAME', 'pqc_sig_keygen'
+AS 'MODULE_PATHNAME', 'pgcrypto_pqc_sig_keygen'
 LANGUAGE C STRICT VOLATILE;
 
 COMMENT ON FUNCTION pqc_sig_keygen(text) IS

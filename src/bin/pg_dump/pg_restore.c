@@ -45,6 +45,9 @@
 #include <termios.h>
 #endif
 
+#ifdef USE_PQC
+#include "compress_pqc.h"
+#endif
 #include "dumputils.h"
 #include "fe_utils/option_utils.h"
 #include "filter.h"
@@ -76,6 +79,11 @@ main(int argc, char **argv)
 	static int	no_security_labels = 0;
 	static int	no_subscriptions = 0;
 	static int	strict_names = 0;
+
+#ifdef USE_PQC
+	const char *pqc_decrypt_key = NULL;
+	const char *pqc_verify_key = NULL;
+#endif
 
 	struct option cmdopts[] = {
 		{"clean", 0, NULL, 'c'},
@@ -128,6 +136,11 @@ main(int argc, char **argv)
 		{"no-subscriptions", no_argument, &no_subscriptions, 1},
 		{"filter", required_argument, NULL, 4},
 		{"restrict-key", required_argument, NULL, 6},
+
+#ifdef USE_PQC
+		{"pqc-decrypt-key", required_argument, NULL, 10},
+		{"pqc-verify-key", required_argument, NULL, 11},
+#endif
 
 		{NULL, 0, NULL, 0}
 	};
@@ -306,6 +319,16 @@ main(int argc, char **argv)
 			case 6:
 				opts->restrict_key = pg_strdup(optarg);
 				break;
+
+#ifdef USE_PQC
+			case 10:			/* --pqc-decrypt-key */
+				pqc_decrypt_key = pg_strdup(optarg);
+				break;
+
+			case 11:			/* --pqc-verify-key */
+				pqc_verify_key = pg_strdup(optarg);
+				break;
+#endif
 
 			default:
 				/* getopt_long already emitted a complaint */

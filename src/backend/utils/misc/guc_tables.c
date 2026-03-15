@@ -90,6 +90,10 @@
 #include "utils/ps_status.h"
 #include "utils/xml.h"
 
+#ifdef USE_PQC
+#include "crypto/pqc/pqc_wal_keys.h"
+#endif
+
 /* This value is normally passed in from the Makefile */
 #ifndef PG_KRB_SRVTAB
 #define PG_KRB_SRVTAB ""
@@ -415,6 +419,9 @@ static const struct config_enum_entry plan_cache_mode_options[] = {
 static const struct config_enum_entry password_encryption_options[] = {
 	{"md5", PASSWORD_TYPE_MD5, false},
 	{"scram-sha-256", PASSWORD_TYPE_SCRAM_SHA_256, false},
+#ifdef USE_PQC
+	{"scram-sha-384", PASSWORD_TYPE_SCRAM_SHA_384, false},
+#endif
 	{NULL, 0, false}
 };
 
@@ -443,6 +450,17 @@ static const struct config_enum_entry ssl_pqc_mode_options[] = {
 	{"pqc-only", PQC_TLS_PQC_ONLY, false},
 	{NULL, 0, false}
 };
+
+#ifdef USE_PQC
+static const struct config_enum_entry crypto_policy_options[] = {
+	{"custom", CRYPTO_POLICY_CUSTOM, false},
+	{"legacy", CRYPTO_POLICY_LEGACY, false},
+	{"transitional", CRYPTO_POLICY_TRANSITIONAL, false},
+	{"fips-pqc-level3", CRYPTO_POLICY_FIPS_PQC_LEVEL3, false},
+	{"fips-pqc-level5", CRYPTO_POLICY_FIPS_PQC_LEVEL5, false},
+	{NULL, 0, false}
+};
+#endif
 
 static const struct config_enum_entry recovery_init_sync_method_options[] = {
 	{"fsync", DATA_DIR_SYNC_METHOD_FSYNC, false},
@@ -2042,6 +2060,29 @@ struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+
+#ifdef USE_PQC
+	/* FortressQL: Post-Quantum WAL signing */
+	{
+		{"wal_pqc_signing", PGC_POSTMASTER, WAL_SETTINGS,
+			gettext_noop("Enables post-quantum digital signature signing of WAL segments."),
+			NULL
+		},
+		&wal_pqc_signing,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"wal_pqc_verify_on_receive", PGC_SIGHUP, WAL_SETTINGS,
+			gettext_noop("Verify PQC signatures on received WAL segments."),
+			NULL
+		},
+		&wal_pqc_verify_on_receive,
+		true,
+		NULL, NULL, NULL
+	},
+#endif							/* USE_PQC */
 
 	/* End-of-list marker */
 	{
@@ -4677,6 +4718,31 @@ struct config_string ConfigureNamesString[] =
 		NULL, NULL, NULL
 	},
 
+	/* FortressQL: Post-Quantum WAL signing configuration */
+#ifdef USE_PQC
+	{
+		{"wal_pqc_signing_algorithm", PGC_POSTMASTER, WAL_SETTINGS,
+			gettext_noop("Sets the PQC signature algorithm for WAL segment signing."),
+			gettext_noop("Must be a valid ML-DSA or SLH-DSA algorithm name."),
+			GUC_SUPERUSER_ONLY
+		},
+		&wal_pqc_signing_algorithm_string,
+		"ML-DSA-65",
+		NULL, NULL, NULL
+	},
+
+	{
+		{"wal_pqc_key_path", PGC_POSTMASTER, WAL_SETTINGS,
+			gettext_noop("Directory containing WAL PQC signing key files."),
+			gettext_noop("Must contain wal_signing.key and wal_signing.pub."),
+			GUC_SUPERUSER_ONLY
+		},
+		&wal_pqc_key_path,
+		"",
+		NULL, NULL, NULL
+	},
+#endif							/* USE_PQC */
+
 	{
 		{"application_name", PGC_USERSET, LOGGING_WHAT,
 			gettext_noop("Sets the application name to be reported in statistics and logs."),
@@ -5182,6 +5248,23 @@ struct config_enum ConfigureNamesEnum[] =
 		ssl_pqc_mode_options,
 		NULL, NULL, NULL
 	},
+
+#ifdef USE_PQC
+	/* FortressQL: Crypto Agility Engine policy */
+	{
+		{"crypto_policy", PGC_SIGHUP, CONN_AUTH_SSL,
+			gettext_noop("Sets the cryptographic policy profile for the server."),
+			gettext_noop("\"custom\" allows manual configuration, \"legacy\" uses classical algorithms, "
+						 "\"transitional\" uses hybrid PQC, \"fips-pqc-level3\" and \"fips-pqc-level5\" "
+						 "enforce FIPS-compliant post-quantum settings."),
+			GUC_SUPERUSER_ONLY
+		},
+		&crypto_policy,
+		CRYPTO_POLICY_CUSTOM,
+		crypto_policy_options,
+		check_crypto_policy, assign_crypto_policy, NULL
+	},
+#endif
 
 	{
 		{"recovery_init_sync_method", PGC_SIGHUP, ERROR_HANDLING_OPTIONS,
