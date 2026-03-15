@@ -38,6 +38,7 @@
 
 #include "postgres_fe.h"
 
+#include <fcntl.h>
 #include <time.h>
 
 #ifdef HAVE_LANGINFO_H
@@ -67,6 +68,7 @@ static void set_frozenxids(bool minmxid_only);
 static void make_outputdirs(char *pgdata);
 static void setup(char *argv0, bool *live_check);
 static void create_logical_replication_slots(void);
+static void migrate_tde_keys(void);
 
 ClusterInfo old_cluster,
 			new_cluster;
@@ -182,6 +184,10 @@ main(int argc, char **argv)
 
 	transfer_all_new_tablespaces(&old_cluster.dbarr, &new_cluster.dbarr,
 								 old_cluster.pgdata, new_cluster.pgdata);
+
+	/* FortressQL: migrate TDE encryption keys if present */
+	if (old_cluster.tde_enabled)
+		migrate_tde_keys();
 
 	/*
 	 * Assuming OIDs are only used in system tables, there is no need to
@@ -916,6 +922,142 @@ set_frozenxids(bool minmxid_only)
 	PQclear(dbres);
 
 	PQfinish(conn_template1);
+
+	check_ok();
+}
+
+/*
+ * migrate_tde_keys
+ *
+ * Copy TDE encryption key directory from old cluster to new cluster.
+ * Validates key files exist and are intact, preserves permissions,
+ * and verifies the copy succeeded.
+ */
+static void
+migrate_tde_keys(void)
+{
+	char		old_dir[MAXPGPATH];
+	char		new_dir[MAXPGPATH];
+	char		old_file[MAXPGPATH];
+	char		new_file[MAXPGPATH];
+	struct stat st;
+	static const char *key_files[] = {
+		"master.key",
+		"master.pub",
+		NULL
+	};
+	int			i;
+
+	snprintf(old_dir, sizeof(old_dir), "%s/global/pg_encryption",
+			 old_cluster.pgdata);
+	snprintf(new_dir, sizeof(new_dir), "%s/global/pg_encryption",
+			 new_cluster.pgdata);
+
+	prep_status("Migrating TDE encryption keys");
+
+	/* Create the encryption directory in the new cluster */
+	if (stat(new_dir, &st) != 0)
+	{
+#ifdef WIN32
+		if (mkdir(new_dir) != 0)
+#else
+		if (mkdir(new_dir, 0700) != 0)
+#endif
+			pg_fatal("could not create TDE key directory \"%s\": %m",
+					 new_dir);
+	}
+
+	/* Copy each key file */
+	for (i = 0; key_files[i] != NULL; i++)
+	{
+		FILE	   *src_fp;
+		FILE	   *dst_fp;
+		uint8_t		buf[8192];
+		size_t		nread;
+
+		snprintf(old_file, sizeof(old_file), "%s/%s", old_dir, key_files[i]);
+		snprintf(new_file, sizeof(new_file), "%s/%s", new_dir, key_files[i]);
+
+		/* Check source exists */
+		if (stat(old_file, &st) != 0)
+		{
+			pg_log(PG_WARNING,
+				   "TDE key file \"%s\" not found in old cluster, skipping",
+				   old_file);
+			continue;
+		}
+
+		/* Validate source file is not empty and not unreasonably large */
+		if (st.st_size == 0)
+			pg_fatal("TDE key file \"%s\" is empty", old_file);
+		if (st.st_size > 1048576)	/* 1 MB sanity limit */
+			pg_fatal("TDE key file \"%s\" is unreasonably large: %lld bytes",
+					 old_file, (long long) st.st_size);
+
+		src_fp = fopen(old_file, "rb");
+		if (src_fp == NULL)
+			pg_fatal("could not open TDE key file \"%s\": %m", old_file);
+
+		/* Create destination with restrictive permissions */
+#ifdef WIN32
+		dst_fp = fopen(new_file, "wb");
+#else
+		{
+			int fd = open(new_file, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+			if (fd < 0)
+			{
+				fclose(src_fp);
+				pg_fatal("could not create TDE key file \"%s\": %m",
+						 new_file);
+			}
+			dst_fp = fdopen(fd, "wb");
+			if (dst_fp == NULL)
+			{
+				close(fd);
+				fclose(src_fp);
+				pg_fatal("could not fdopen TDE key file \"%s\": %m",
+						 new_file);
+			}
+		}
+#endif
+
+		/* Copy contents */
+		while ((nread = fread(buf, 1, sizeof(buf), src_fp)) > 0)
+		{
+			if (fwrite(buf, 1, nread, dst_fp) != nread)
+			{
+				fclose(src_fp);
+				fclose(dst_fp);
+				pg_fatal("could not write TDE key file \"%s\": %m",
+						 new_file);
+			}
+		}
+
+		if (ferror(src_fp))
+		{
+			fclose(src_fp);
+			fclose(dst_fp);
+			pg_fatal("could not read TDE key file \"%s\": %m", old_file);
+		}
+
+		/* Flush to disk */
+		if (fflush(dst_fp) != 0 || fsync(fileno(dst_fp)) != 0)
+			pg_log(PG_WARNING,
+				   "could not fsync TDE key file \"%s\": %m", new_file);
+
+		fclose(src_fp);
+		fclose(dst_fp);
+
+		pg_log(PG_VERBOSE,
+			   "copied TDE key file: %s -> %s (%lld bytes)",
+			   old_file, new_file, (long long) st.st_size);
+	}
+
+	/* Verify the critical master.key was copied */
+	snprintf(new_file, sizeof(new_file), "%s/master.key", new_dir);
+	if (stat(new_file, &st) != 0)
+		pg_fatal("TDE master key migration failed: \"%s\" not found after copy",
+				 new_file);
 
 	check_ok();
 }

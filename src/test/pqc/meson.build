@@ -22,6 +22,7 @@ tests += {
       't/011_failover_pqc.pl',
       't/012_tde_benchmark.pl',
       't/013_tls_benchmark.pl',
+      't/014_basebackup_tde.pl',
     ],
   },
 }

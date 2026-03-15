@@ -680,34 +680,23 @@ check_and_dump_old_cluster(bool live_check)
 	if (!live_check)
 		stop_postmaster(false);
 
-	/*
-	 * FortressQL: Check if the old cluster has TDE (Transparent Data
-	 * Encryption) enabled.  If so, warn the user that encryption keys
-	 * must be copied manually to the new cluster's data directory.
-	 */
+	/* FortressQL: Check for TDE-encrypted cluster */
 	{
-		char		tde_path[MAXPGPATH];
-		struct stat	statbuf;
+		char		tde_dir[MAXPGPATH];
+		struct stat tde_st;
 
-		snprintf(tde_path, sizeof(tde_path), "%s/global/pg_encryption",
+		snprintf(tde_dir, sizeof(tde_dir), "%s/global/pg_encryption",
 				 old_cluster.pgdata);
 
-		if (stat(tde_path, &statbuf) == 0 && S_ISDIR(statbuf.st_mode))
+		if (stat(tde_dir, &tde_st) == 0 && S_ISDIR(tde_st.st_mode))
 		{
-			pg_log(PG_WARNING,
-				   "\n"
-				   "FortressQL TDE Notice\n"
-				   "---------------------\n"
-				   "The old cluster at \"%s\" has TDE (Transparent Data\n"
-				   "Encryption) enabled.  After pg_upgrade completes, you must\n"
-				   "manually copy the encryption key material:\n"
-				   "\n"
-				   "    cp -r %s/global/pg_encryption %s/global/pg_encryption\n"
-				   "\n"
-				   "Failure to do so will result in the new cluster being unable\n"
-				   "to decrypt data that was encrypted at rest.\n",
-				   old_cluster.pgdata,
-				   old_cluster.pgdata, new_cluster.pgdata);
+			old_cluster.tde_enabled = true;
+			pg_log(PG_STATUS, "FortressQL: TDE-encrypted cluster detected, "
+				   "keys will be migrated automatically");
+		}
+		else
+		{
+			old_cluster.tde_enabled = false;
 		}
 	}
 }

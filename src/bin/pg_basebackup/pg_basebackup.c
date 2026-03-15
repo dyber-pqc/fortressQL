@@ -155,6 +155,10 @@ static bool manifest_force_encode = false;
 static char *manifest_checksums = NULL;
 static DataDirSyncMethod sync_method = DATA_DIR_SYNC_METHOD_FSYNC;
 
+/* FortressQL TDE backup options */
+static bool tde_keys_found = false;
+static char *tde_key_handling = NULL;	/* "include" (default), "exclude", "verify-only" */
+
 static bool success = false;
 static bool made_new_pgdata = false;
 static bool found_existing_pgdata = false;
@@ -435,6 +439,8 @@ usage(void)
 			 "                         do not verify checksums\n"));
 	printf(_("      --sync-method=METHOD\n"
 			 "                         set method for syncing files to disk\n"));
+	printf(_("      --tde-key-handling=MODE\n"
+			 "                         TDE key handling: include (default), exclude, verify-only\n"));
 	printf(_("  -?, --help             show this help, then exit\n"));
 	printf(_("\nConnection options:\n"));
 	printf(_("  -d, --dbname=CONNSTR   connection string\n"));
@@ -2346,6 +2352,70 @@ BaseBackup(char *compression_algorithm, char *compression_detail,
 		}
 	}
 
+	/*
+	 * FortressQL: TDE key material verification.
+	 *
+	 * When backing up a TDE-encrypted cluster, verify that the encryption
+	 * key directory was included in the backup.  For plain-format backups
+	 * (not tar), we can check the output directory directly.
+	 */
+#ifdef USE_PQC
+	if (format == 'p' && basedir != NULL)
+	{
+		char		tde_check_path[MAXPGPATH];
+		struct stat tde_st;
+
+		snprintf(tde_check_path, sizeof(tde_check_path),
+				 "%s/global/pg_encryption/master.key", basedir);
+
+		if (stat(tde_check_path, &tde_st) == 0)
+		{
+			tde_keys_found = true;
+
+			if (tde_key_handling != NULL &&
+				strcmp(tde_key_handling, "exclude") == 0)
+			{
+				/* User requested exclusion - remove key files */
+				char	tde_dir[MAXPGPATH];
+
+				snprintf(tde_dir, sizeof(tde_dir),
+						 "%s/global/pg_encryption", basedir);
+				pg_log_info("FortressQL: removing TDE key material from backup "
+							"as requested by --tde-key-handling=exclude");
+
+				snprintf(tde_check_path, sizeof(tde_check_path),
+						 "%s/master.key", tde_dir);
+				unlink(tde_check_path);
+				snprintf(tde_check_path, sizeof(tde_check_path),
+						 "%s/master.pub", tde_dir);
+				unlink(tde_check_path);
+			}
+			else
+			{
+				pg_log_info("FortressQL: TDE encryption keys included in backup");
+				pg_log_info("IMPORTANT: This backup contains cryptographic key material. "
+							"Store it securely and restrict access.");
+			}
+		}
+		else
+		{
+			/*
+			 * Check if the source server had TDE enabled by looking for
+			 * the pg_encryption directory (even if empty).
+			 */
+			char	tde_dir[MAXPGPATH];
+
+			snprintf(tde_dir, sizeof(tde_dir),
+					 "%s/global/pg_encryption", basedir);
+			if (stat(tde_dir, &tde_st) == 0 && S_ISDIR(tde_st.st_mode))
+			{
+				pg_log_warning("FortressQL: TDE directory found but master.key is missing; "
+							   "backup may not be usable for TDE-encrypted cluster restore");
+			}
+		}
+	}
+#endif
+
 	if (verbose)
 		pg_log_info("base backup completed");
 }
@@ -2390,6 +2460,7 @@ main(int argc, char **argv)
 		{"manifest-force-encode", no_argument, NULL, 6},
 		{"manifest-checksums", required_argument, NULL, 7},
 		{"sync-method", required_argument, NULL, 8},
+		{"tde-key-handling", required_argument, NULL, 9},
 		{NULL, 0, NULL, 0}
 	};
 	int			c;
@@ -2568,6 +2639,18 @@ main(int argc, char **argv)
 			case 8:
 				if (!parse_sync_method(optarg, &sync_method))
 					exit(1);
+				break;
+			case 9:
+				tde_key_handling = pg_strdup(optarg);
+				if (strcmp(tde_key_handling, "include") != 0 &&
+					strcmp(tde_key_handling, "exclude") != 0 &&
+					strcmp(tde_key_handling, "verify-only") != 0)
+				{
+					pg_log_error("invalid value \"%s\" for --tde-key-handling",
+								 tde_key_handling);
+					pg_log_error_hint("Valid values are: include, exclude, verify-only.");
+					exit(1);
+				}
 				break;
 			default:
 				/* getopt_long already emitted a complaint */

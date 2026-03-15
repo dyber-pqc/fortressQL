@@ -296,6 +296,7 @@ typedef struct
 	uint32		bin_version;	/* version returned from pg_ctl */
 	const char *tablespace_suffix;	/* directory specification */
 	int			nsubs;			/* number of subscriptions */
+	bool		tde_enabled;	/* FortressQL: TDE encryption detected */
 } ClusterInfo;
 
 
