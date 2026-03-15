@@ -98,6 +98,7 @@ jobs:
         run: |
           export PATH="/usr/local/fortressql/bin:$PATH"
           export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
           cd build
           meson test pgcrypto_pqc --timeout-multiplier 4 --print-errorlogs || true
 
@@ -106,6 +107,7 @@ jobs:
         run: |
           export PATH="/usr/local/fortressql/bin:$PATH"
           export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
           cd build
           meson test pg_upgrade/ --timeout-multiplier 4 --print-errorlogs || true
 
@@ -114,6 +116,7 @@ jobs:
         run: |
           export PATH="/usr/local/fortressql/bin:$PATH"
           export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
           initdb -D /tmp/fql_test -U postgres --no-locale
           pg_ctl -D /tmp/fql_test -l /tmp/fql_test/server.log -o "-p 15432" start
           sleep 2
@@ -150,8 +153,8 @@ jobs:
               valid boolean;
             BEGIN
               SELECT * INTO keys FROM pqc_sig_keygen('ML-DSA-65');
-              SELECT pqc_sig_sign('ML-DSA-65', 'FortressQL test message'::bytea, keys.secret_key) INTO sig;
-              SELECT pqc_sig_verify('ML-DSA-65', 'FortressQL test message'::bytea, sig, keys.public_key) INTO valid;
+              SELECT pqc_sign('FortressQL test message'::bytea, keys.secret_key, 'ML-DSA-65') INTO sig;
+              SELECT pqc_verify('FortressQL test message'::bytea, sig, keys.public_key, 'ML-DSA-65') INTO valid;
               IF valid THEN
                 RAISE NOTICE 'Signature round-trip: PASS';
               ELSE
@@ -165,6 +168,7 @@ jobs:
         run: |
           export PATH="/usr/local/fortressql/bin:$PATH"
           export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
           pg_ctl -D /tmp/fql_test -l /tmp/fql_test/server.log -o "-p 15432" start
           sleep 2
           psql -U postgres -p 15432 -d test_pqc -c "
