@@ -15,12 +15,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Ubuntu with system OpenSSL + liboqs from source
           - os: ubuntu-24.04
             openssl: system
             pqc: enabled
 
-          # Ubuntu with PQC disabled (vanilla compat check)
           - os: ubuntu-24.04
             openssl: system
             pqc: disabled
@@ -37,9 +35,7 @@ jobs:
             libssl-dev libreadline-dev zlib1g-dev \
             libicu-dev flex bison python3 python3-pip \
             cmake ninja-build
-          # Install latest meson via pip (Ubuntu's may be too old)
-          pip3 install --user meson
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          sudo pip3 install --break-system-packages meson
 
       - name: Build and install liboqs
         if: matrix.pqc == 'enabled'
@@ -79,7 +75,7 @@ jobs:
         run: meson compile -C build
 
       - name: Install
-        run: sudo "$(which meson)" install -C build
+        run: sudo meson install -C build
 
       - name: Smoke test (PQC enabled)
         if: matrix.pqc == 'enabled'
@@ -107,18 +103,26 @@ jobs:
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install build tools and OpenSSL
+      - name: Install build tools
+        run: pip install meson ninja
+
+      - name: Install OpenSSL
+        shell: bash
         run: |
-          pip install meson ninja
-          vcpkg install openssl:x64-windows
+          choco install openssl -y --no-progress
+          echo "OPENSSL_ROOT=C:/Program Files/OpenSSL-Win64" >> $GITHUB_ENV
 
       - name: Configure (PQC disabled)
-        shell: cmd
+        shell: bash
         run: |
-          set "PKG_CONFIG_PATH=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\lib\pkgconfig"
-          set "INCLUDE=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\include;%INCLUDE%"
-          set "LIB=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\lib;%LIB%"
-          meson setup build -Dpqc=disabled -Dssl=openssl -Dcassert=true
+          export INCLUDE="C:/Program Files/OpenSSL-Win64/include;$INCLUDE"
+          export LIB="C:/Program Files/OpenSSL-Win64/lib;$LIB"
+          meson setup build \
+            -Dpqc=disabled \
+            -Dssl=openssl \
+            -Dcassert=true \
+            -Dextra_include_dirs="C:/Program Files/OpenSSL-Win64/include" \
+            -Dextra_lib_dirs="C:/Program Files/OpenSSL-Win64/lib"
 
       - name: Build
         run: meson compile -C build
