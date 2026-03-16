@@ -200,7 +200,11 @@ jobs:
           echo "Key captured (length: ${#FORTRESSQL_KEM_SECRET_KEY})"
           echo "tde_enabled = on" >> /tmp/fql_tde_test/postgresql.conf
           echo "--- Start server with TDE enabled ---"
-          pg_ctl -D /tmp/fql_tde_test -l /tmp/fql_tde_test/server.log -o "-p 15433" start
+          pg_ctl -D /tmp/fql_tde_test -l /tmp/fql_tde_test/server.log -o "-p 15433" start || {
+            echo "=== SERVER FAILED TO START - LOG OUTPUT ==="
+            cat /tmp/fql_tde_test/server.log
+            exit 1
+          }
           sleep 2
           echo "--- Create test database ---"
           psql -U postgres -p 15433 -c "CREATE DATABASE tde_e2e_test;"
@@ -265,7 +269,11 @@ jobs:
           echo "wal_pqc_signing_algorithm = 'ML-DSA-65'" >> /tmp/fql_wal_test/postgresql.conf
 
           echo "--- Start server on port 15434 ---"
-          pg_ctl -D /tmp/fql_wal_test -l /tmp/fql_wal_test/server.log -o "-p 15434" start
+          pg_ctl -D /tmp/fql_wal_test -l /tmp/fql_wal_test/server.log -o "-p 15434" start || {
+            echo "=== SERVER FAILED TO START - LOG OUTPUT ==="
+            cat /tmp/fql_wal_test/server.log
+            exit 1
+          }
           sleep 2
 
           echo "--- Create test database and generate WAL ---"
@@ -367,7 +375,11 @@ jobs:
           echo "Key captured (length: ${#FORTRESSQL_KEM_SECRET_KEY})"
           echo "tde_enabled = on" >> /tmp/fql_crash_test/postgresql.conf
           echo "--- Start server with TDE enabled ---"
-          pg_ctl -D /tmp/fql_crash_test -l /tmp/fql_crash_test/server.log -o "-p 15435" start
+          pg_ctl -D /tmp/fql_crash_test -l /tmp/fql_crash_test/server.log -o "-p 15435" start || {
+            echo "=== SERVER FAILED TO START - LOG OUTPUT ==="
+            cat /tmp/fql_crash_test/server.log
+            exit 1
+          }
           sleep 2
           echo "--- Create database and table, insert 500 rows ---"
           psql -U postgres -p 15435 -c "CREATE DATABASE crash_test;"
