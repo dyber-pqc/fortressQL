@@ -1,4 +1,4 @@
-# FortressQL v1.0.1 Release Notes
+# FortressQL v1.0.2 Release Notes
 
 **Release Date:** March 16, 2026
 **Base:** PostgreSQL 17.9
@@ -10,32 +10,48 @@
 
 FortressQL is a PostgreSQL 17 fork with built-in post-quantum cryptography. It provides ML-KEM, ML-DSA, SLH-DSA, Transparent Data Encryption (TDE), WAL signing, and hybrid PQC/classical TLS — all compliant with FIPS 203, 204, and 205.
 
-v1.0.1 is a patch release fixing critical bugs in TDE master key initialization and WAL segment signing discovered during end-to-end CI validation.
+v1.0.2 delivers all six production readiness milestones: WAL key auto-load, client-side PQC TLS, a comprehensive security audit document, a pluggable HSM/KMS key provider interface, replication test coverage, and pgbench performance baselines. It also fixes a WAL signing crash under concurrent load by switching to hash-then-sign.
 
 ---
 
-## What's New in v1.0.1
+## What's New in v1.0.2
+
+### Beta Features
+
+- **WAL signing key auto-load on primary startup** — `pqc_preflight_check()` is now called from `postmaster.c` during server startup. When `wal_pqc_signing = on` and key files exist in `wal_pqc_key_path`, the ML-DSA signing keys are automatically loaded into memory. Forked backends inherit the keys via `fork()`, matching the existing standby behavior. Previously, keys were only loaded on the standby via `walreceiver.c`.
+
+- **Client-side PQC TLS (libpq)** — `fe-secure-openssl.c` now loads the OQS provider for OpenSSL 3.0–3.4 and configures hybrid PQC key exchange groups (`X25519MLKEM768`) with graceful fallback to classical groups (`X25519:prime256v1:secp384r1`). This mirrors the server-side PQC TLS already present in `be-secure-openssl.c`. Client applications using libpq (psql, pg_dump, custom apps) now negotiate PQC-protected TLS connections automatically when `sslpqcmode != off`.
+
+- **Security audit document** — New `docs/SECURITY_AUDIT.md` covering threat model (HNDL attacks, WAL tampering, data-at-rest extraction), cryptographic architecture details for all four PQC subsystems, key material lifecycle tables, FIPS 203/204/205 compliance mapping, seven known limitations, and third-party audit recommendations (~5,000 lines of PQC code, 3–5 week engagement estimate).
+
+### Production Features
+
+- **HSM/KMS key provider interface** — New `tde_key_provider` GUC with three modes:
+  - `env` (default) — reads the ML-KEM secret key from `FORTRESSQL_KEM_SECRET_KEY` environment variable (existing behavior)
+  - `file` — reads the hex-encoded secret key from the path specified by `tde_key_file`
+  - `command` — executes `tde_key_command` and reads the hex key from stdout, enabling integration with HashiCorp Vault, AWS KMS, Azure Key Vault, or any external key management system
+
+  New files: `src/include/crypto/tde/tde_key_provider.h`, `src/backend/crypto/tde/tde_key_provider.c`
+
+- **Replication test fix** — `src/test/pqc/t/010_replication_pqc.pl` was writing WAL signing keys with wrong filenames (`wal_sign_pub.bin`/`wal_sign_sec.bin`). Now uses `pqc_rotate_wal_signing_keys('ML-DSA-65')` SQL function which writes the correct `wal_signing.pub`/`wal_signing.key` files. Test added to CI workflow.
+
+- **Performance baselines (pgbench)** — CI now runs a 4-configuration pgbench matrix:
+  1. Baseline (PQC disabled)
+  2. WAL signing only (ML-DSA-65)
+  3. TDE only (AES-256 + ML-KEM-768)
+  4. TDE + WAL signing
+
+  Each configuration runs `pgbench -T 15 -c 4 -j 2` on a scale-5 database. Results are printed as a summary table at the end of each CI run.
 
 ### Bug Fixes
 
-- **TDE master key file format mismatch** — `pg_tde_master_key init` was producing files incompatible with the server. The tool wrote magic `FQMK` with only a header and public key, but the server expected magic `TDE1` with the full encrypted payload (header + public key + ML-KEM-768 ciphertext + AES-256-GCM IV + encrypted master key + GCM tag). The tool now generates a random AES-256 master key, wraps it via ML-KEM-768 encapsulation and AES-256-GCM encryption, and writes the complete server-compatible blob.
+- **WAL signing crash under concurrent load** — Under heavy pgbench load with 4 clients, the OQS ML-DSA-65 signing function would crash when given a full 16MB WAL segment directly. Switched to hash-then-sign: the segment is read in 8KB chunks and hashed with SHA-256 (via PostgreSQL's `pg_cryptohash` API), then only the 32-byte hash is signed. This eliminates the 16MB `palloc` allocation per signing operation and avoids passing large buffers to OQS.
 
-- **TDE key cache never initialized at startup** — `tde_keycache_shmem_init()` and `tde_unwrap_master_key()` were defined but never wired into the PostgreSQL shared memory startup path. Added initialization to `ipci.c` so the key cache is allocated in shared memory and the master key is unwrapped automatically when the server starts with `tde_enabled = on`.
-
-- **WAL signing PANIC in critical section** — `XLogPqcSignSegment` was called directly inside `XLogWrite`, which runs in a PostgreSQL critical section. Any `palloc` call inside a critical section triggers an immediate `PANIC` and server crash. Replaced with a deferred signing queue: segment metadata is recorded inside `XLogWrite`, and the actual signing (file I/O, cryptographic operations) runs after `END_CRIT_SECTION()` in `XLogFlush` and the WAL writer.
-
-- **WAL signing test missing ML-DSA keys** — WAL signing requires ML-DSA digital signature keypairs (separate from TDE's ML-KEM keys), loaded from the `wal_pqc_key_path` directory. CI tests now properly generate keys via `pqc_rotate_wal_signing_keys('ML-DSA-65')` before enabling `wal_pqc_signing`.
-
-### CI/Testing Improvements
-
-- End-to-end TDE test covering full lifecycle: `initdb` → `pg_tde_master_key init` → start with `tde_enabled=on` → create database/table → insert → restart → verify data survives
-- End-to-end WAL signing test: generate ML-DSA-65 keys → enable `wal_pqc_signing` → insert data → `pg_switch_wal()` → restart → verify WAL replay integrity
-- Crash recovery test: insert → checkpoint → insert more → `pg_ctl stop -m immediate` (simulate crash) → restart → verify all rows survive
-- Server log capture on all test failures for faster debugging
+- **Compilation errors** — Fixed `pqc_wal_load_signing_keys()` call missing required `key_path` and `algorithm` arguments. Fixed `#ifdef USE_PQC` guard nesting in `guc_tables.c` that caused `crypto_policy` and `tde_key_provider` symbols to be undeclared.
 
 ---
 
-## Features (since v1.0.0)
+## Cumulative Features
 
 ### Post-Quantum Cryptography Engine
 - **ML-KEM** (FIPS 203) — ML-KEM-512, ML-KEM-768, ML-KEM-1024 key encapsulation
@@ -64,16 +80,20 @@ SELECT * FROM pqc_algorithms();
 ### Transparent Data Encryption (TDE)
 - AES-256 data-at-rest encryption with ML-KEM-768 key wrapping
 - `pg_tde_master_key` CLI for master key lifecycle management
-- Automatic key unwrapping at server startup via `FORTRESSQL_KEM_SECRET_KEY` environment variable
+- Pluggable key providers: environment variable, file, or external command (HSM/KMS)
+- Automatic key unwrapping at server startup
 
 ### WAL Signing
-- Post-quantum digital signatures on completed WAL segments
+- Post-quantum digital signatures on completed WAL segments (hash-then-sign)
 - ML-DSA-65 (default), ML-DSA-44, ML-DSA-87 supported
 - Deferred signing architecture — zero impact on WAL write critical path
+- Automatic key loading on primary startup
 - Online key rotation via `pqc_rotate_wal_signing_keys()`
 
-### Performance
-- CI benchmark suite: ML-KEM-768 keygen+encaps+decaps, ML-DSA-65 keygen+sign+verify, column-level encryption round-trip
+### PQC TLS
+- Server-side: oqs-provider with configurable `ssl_pqc_groups` and `ssl_pqc_sigalgs`
+- Client-side (libpq): automatic hybrid PQC key exchange (`X25519MLKEM768`)
+- Three modes: `off`, `hybrid` (default), `pqc-only`
 
 ---
 
@@ -105,6 +125,7 @@ psql -c "CREATE EXTENSION pgcrypto_pqc;"
 # Create key directory and configure
 mkdir -p /path/to/data/pg_wal_keys
 echo "wal_pqc_key_path = '/path/to/data/pg_wal_keys'" >> postgresql.conf
+echo "wal_pqc_signing_algorithm = 'ML-DSA-65'" >> postgresql.conf
 
 # Start server, generate keys
 pg_ctl start
@@ -117,12 +138,24 @@ echo "wal_pqc_signing = on" >> postgresql.conf
 pg_ctl start
 ```
 
+### HSM/KMS Key Provider
+
+```bash
+# File-based key storage
+echo "tde_key_provider = 'file'" >> postgresql.conf
+echo "tde_key_file = '/secure/path/tde_secret.hex'" >> postgresql.conf
+
+# External command (e.g., HashiCorp Vault)
+echo "tde_key_provider = 'command'" >> postgresql.conf
+echo "tde_key_command = 'vault kv get -field=hex_key secret/fortressql/tde'" >> postgresql.conf
+```
+
 ---
 
 ## CI Status
 
-| Platform | PQC | Build | Smoke Tests | TDE E2E | WAL Signing E2E | Crash Recovery | Benchmarks |
-|----------|-----|-------|-------------|---------|-----------------|----------------|------------|
+| Platform | PQC | Build | TDE E2E | WAL Signing E2E | Crash Recovery | Replication | Benchmarks |
+|----------|-----|-------|---------|-----------------|----------------|-------------|------------|
 | Ubuntu 24.04 x86_64 | Enabled | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
 | Ubuntu 24.04 x86_64 | Disabled | :white_check_mark: | N/A | N/A | N/A | N/A | N/A |
 | macOS 14 ARM64 | Enabled | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
@@ -132,13 +165,34 @@ pg_ctl start
 
 ## Security
 
-Report vulnerabilities to **security@dyber.org**. See [SECURITY.md](SECURITY.md) for the full disclosure policy.
+- **Audit document:** [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md)
+- **Report vulnerabilities:** security@dyber.org
+- **Disclosure policy:** [SECURITY.md](SECURITY.md)
+
+---
+
+## Upgrade from v1.0.1
+
+No schema changes. Replace binaries and restart:
+
+```bash
+pg_ctl stop
+# Install new binaries (meson setup build && ninja -C build install)
+pg_ctl start
+```
+
+New GUCs available after upgrade (optional):
+- `tde_key_provider` — `'env'` (default), `'file'`, or `'command'`
+- `tde_key_file` — path to hex-encoded secret key file
+- `tde_key_command` — external command that outputs the hex key
 
 ---
 
 ## Links
 
 - **Repository:** https://github.com/dyber-pqc/fortressQL
-- **Changelog:** https://github.com/dyber-pqc/fortressQL/compare/v1.0.0...v1.0.1
+- **Changelog:** https://github.com/dyber-pqc/fortressQL/compare/v1.0.1...v1.0.2
+- **Production Readiness Plan:** [docs/PRODUCTION_READINESS_PLAN.md](docs/PRODUCTION_READINESS_PLAN.md)
+- **Security Audit:** [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md)
 - **Documentation:** [docs/](docs/)
 - **liboqs:** https://github.com/open-quantum-safe/liboqs
