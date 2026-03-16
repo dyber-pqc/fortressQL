@@ -453,6 +453,7 @@ static const struct config_enum_entry ssl_pqc_mode_options[] = {
 	{NULL, 0, false}
 };
 
+#ifdef USE_PQC
 /* FortressQL: TDE key provider options */
 static const struct config_enum_entry tde_key_provider_options[] = {
 	{"env", 0, false},			/* TDE_KEY_PROVIDER_ENV */
@@ -460,8 +461,6 @@ static const struct config_enum_entry tde_key_provider_options[] = {
 	{"command", 2, false},		/* TDE_KEY_PROVIDER_COMMAND */
 	{NULL, 0, false}
 };
-
-#ifdef USE_PQC
 static const struct config_enum_entry crypto_policy_options[] = {
 	{"custom", CRYPTO_POLICY_CUSTOM, false},
 	{"legacy", CRYPTO_POLICY_LEGACY, false},
@@ -5310,7 +5309,7 @@ struct config_enum ConfigureNamesEnum[] =
 		tde_key_provider_options,
 		NULL, NULL, NULL
 	},
-#endif
+
 	/* FortressQL: Crypto Agility Engine policy */
 	{
 		{"crypto_policy", PGC_SIGHUP, CONN_AUTH_SSL,

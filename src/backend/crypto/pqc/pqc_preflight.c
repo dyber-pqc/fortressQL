@@ -100,7 +100,8 @@ pqc_preflight_check(void)
 				 */
 				PG_TRY();
 				{
-					pqc_wal_load_signing_keys();
+					pqc_wal_load_signing_keys(wal_pqc_key_path,
+											  wal_pqc_signing_algorithm_string);
 					elog(LOG, "FortressQL: WAL signing keys loaded at startup");
 				}
 				PG_CATCH();
