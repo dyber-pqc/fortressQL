@@ -466,6 +466,9 @@ For detailed parameter descriptions, defaults, and recommended values, see the [
 
 - **[Administrator's Guide](doc/fortressql-admin-guide.md)** -- Installation, configuration, key management, backup, monitoring, and troubleshooting
 - **[Threat Model](doc/fortressql-threat-model.md)** -- Threat landscape, protection matrix, scope boundaries, and compliance mapping (SOC 2, HIPAA, FedRAMP, CMMC)
+- **[Upgrade Guide](docs/UPGRADE.md)** -- Migration from PostgreSQL 17, version upgrades, and PQC feature enablement
+- **[Backup & Restore](docs/BACKUP_RESTORE.md)** -- Backup procedures with TDE, key management, and disaster recovery
+- **[Security Posture](docs/SECURITY_AUDIT.md)** -- Security audit status, validated components, and production recommendations
 
 ## Contributing
 

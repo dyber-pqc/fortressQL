@@ -163,6 +163,52 @@ jobs:
             END \$\$;"
           pg_ctl -D /tmp/fql_test -m fast stop
 
+      - name: TDE smoke test
+        if: matrix.pqc == 'enabled'
+        run: |
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
+          pg_ctl -D /tmp/fql_test -m fast stop 2>/dev/null || true
+          pg_ctl -D /tmp/fql_test -l /tmp/fql_test/server.log -o "-p 15432" start
+          sleep 2
+          echo "--- Verify tde_enabled GUC exists ---"
+          psql -U postgres -p 15432 -c "SHOW tde_enabled;"
+          echo "--- Verify TDE functions are registered in pg_proc ---"
+          psql -U postgres -p 15432 -d test_pqc -c "
+            SELECT proname FROM pg_proc
+            WHERE proname LIKE 'tde_%'
+            ORDER BY proname;"
+          pg_ctl -D /tmp/fql_test -m fast stop
+
+      - name: WAL signing smoke test
+        if: matrix.pqc == 'enabled'
+        run: |
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
+          pg_ctl -D /tmp/fql_test -m fast stop 2>/dev/null || true
+          pg_ctl -D /tmp/fql_test -l /tmp/fql_test/server.log -o "-p 15432" start
+          sleep 2
+          echo "--- Verify wal_pqc_signing GUC exists ---"
+          psql -U postgres -p 15432 -c "SHOW wal_pqc_signing;"
+          echo "--- Verify wal_pqc_signing_algorithm GUC exists ---"
+          psql -U postgres -p 15432 -c "SHOW wal_pqc_signing_algorithm;"
+          pg_ctl -D /tmp/fql_test -m fast stop
+
+      - name: PQC performance benchmark
+        if: matrix.pqc == 'enabled'
+        run: |
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
+          pg_ctl -D /tmp/fql_test -m fast stop 2>/dev/null || true
+          pg_ctl -D /tmp/fql_test -l /tmp/fql_test/server.log -o "-p 15432" start
+          sleep 2
+          echo "--- PQC Performance Benchmark ---"
+          psql -U postgres -p 15432 -d test_pqc -f contrib/pgcrypto_pqc/sql/ci_benchmark.sql || true
+          pg_ctl -D /tmp/fql_test -m fast stop
+
       - name: Test column encryption
         if: matrix.pqc == 'enabled'
         run: |
