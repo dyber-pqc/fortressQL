@@ -2286,13 +2286,48 @@ XLogCheckpointNeeded(XLogSegNo new_segno)
 
 #ifdef USE_PQC
 /*
+ * Deferred WAL PQC signing queue.
+ *
+ * XLogWrite runs inside a critical section where palloc/AllocateFile are
+ * forbidden (they can PANIC on failure).  Instead of signing inline, we
+ * record completed segments in a small queue and process them after the
+ * critical section ends.
+ */
+#define PQC_SIGN_QUEUE_SIZE		8
+
+static struct
+{
+	int			count;
+	XLogSegNo	segno[PQC_SIGN_QUEUE_SIZE];
+	TimeLineID	tli[PQC_SIGN_QUEUE_SIZE];
+} pqc_sign_queue = {0};
+
+/*
+ * XLogPqcEnqueueSign
+ *
+ * Record a completed segment for deferred signing.
+ * Called from XLogWrite inside the critical section.
+ */
+static void
+XLogPqcEnqueueSign(XLogSegNo segno, TimeLineID tli)
+{
+	if (pqc_sign_queue.count < PQC_SIGN_QUEUE_SIZE)
+	{
+		int idx = pqc_sign_queue.count++;
+
+		pqc_sign_queue.segno[idx] = segno;
+		pqc_sign_queue.tli[idx] = tli;
+	}
+	/* silently drop if queue overflows; segment signing is best-effort */
+}
+
+/*
  * XLogPqcSignSegment
  *
  * Sign a completed WAL segment file using the loaded PQC signing key.
  * The signature is written to pg_wal/<segment>.sig alongside the segment.
  *
- * This is called after a segment has been fully written and fsynced.
- * Runs outside any critical section.
+ * MUST be called outside any critical section (uses palloc/AllocateFile).
  */
 static void
 XLogPqcSignSegment(XLogSegNo segno, TimeLineID tli)
@@ -2406,6 +2441,29 @@ XLogPqcSignSegment(XLogSegNo segno, TimeLineID tli)
 
 	ereport(DEBUG1,
 			(errmsg("PQC WAL sign: signed segment \"%s\"", segpath)));
+}
+
+/*
+ * XLogPqcProcessDeferredSigning
+ *
+ * Process any segments queued for signing.  Must be called OUTSIDE any
+ * critical section (after END_CRIT_SECTION).
+ */
+static void
+XLogPqcProcessDeferredSigning(void)
+{
+	int			i;
+	int			count;
+
+	count = pqc_sign_queue.count;
+	if (count == 0)
+		return;
+
+	/* Reset queue before processing so new entries can be added */
+	pqc_sign_queue.count = 0;
+
+	for (i = 0; i < count; i++)
+		XLogPqcSignSegment(pqc_sign_queue.segno[i], pqc_sign_queue.tli[i]);
 }
 #endif							/* USE_PQC */
 
@@ -2638,11 +2696,12 @@ XLogWrite(XLogwrtRqst WriteRqst, TimeLineID tli, bool flexible)
 
 #ifdef USE_PQC
 				/*
-				 * FortressQL: sign the completed WAL segment with a
-				 * post-quantum digital signature if enabled.
+				 * FortressQL: queue the completed WAL segment for
+				 * post-quantum digital signing.  Actual signing is
+				 * deferred until after the critical section ends.
 				 */
 				if (wal_pqc_signing)
-					XLogPqcSignSegment(openLogSegNo, tli);
+					XLogPqcEnqueueSign(openLogSegNo, tli);
 #endif
 			}
 		}
@@ -3045,6 +3104,11 @@ XLogFlush(XLogRecPtr record)
 
 	END_CRIT_SECTION();
 
+#ifdef USE_PQC
+	/* Process any WAL segments queued for PQC signing (outside crit section) */
+	XLogPqcProcessDeferredSigning();
+#endif
+
 	/* wake up walsenders now that we've released heavily contended locks */
 	WalSndWakeupProcessRequests(true, !RecoveryInProgress());
 
@@ -3219,6 +3283,11 @@ XLogBackgroundFlush(void)
 	LWLockRelease(WALWriteLock);
 
 	END_CRIT_SECTION();
+
+#ifdef USE_PQC
+	/* Process any WAL segments queued for PQC signing (outside crit section) */
+	XLogPqcProcessDeferredSigning();
+#endif
 
 	/* wake up walsenders now that we've released heavily contended locks */
 	WalSndWakeupProcessRequests(true, !RecoveryInProgress());
