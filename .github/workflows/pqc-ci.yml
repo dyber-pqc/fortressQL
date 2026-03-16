@@ -193,6 +193,8 @@ jobs:
           rm -rf /tmp/fql_tde_test
           echo "--- Initialize fresh TDE data directory ---"
           initdb -D /tmp/fql_tde_test -U postgres --no-locale
+          echo "--- Initialize TDE master key ---"
+          pg_tde_master_key init -D /tmp/fql_tde_test
           echo "tde_enabled = on" >> /tmp/fql_tde_test/postgresql.conf
           echo "--- Start server with TDE enabled ---"
           pg_ctl -D /tmp/fql_tde_test -l /tmp/fql_tde_test/server.log -o "-p 15433" start
@@ -250,6 +252,8 @@ jobs:
           echo "--- Initialize fresh data directory ---"
           initdb -D /tmp/fql_wal_test -U postgres --no-locale
 
+          echo "--- Initialize TDE/WAL master key ---"
+          pg_tde_master_key init -D /tmp/fql_wal_test
           echo "--- Enable WAL signing in postgresql.conf ---"
           echo "wal_pqc_signing = on" >> /tmp/fql_wal_test/postgresql.conf
           echo "wal_pqc_signing_algorithm = 'ML-DSA-65'" >> /tmp/fql_wal_test/postgresql.conf
@@ -350,6 +354,8 @@ jobs:
           rm -rf /tmp/fql_crash_test || true
           echo "--- Initialize fresh crash recovery data directory ---"
           initdb -D /tmp/fql_crash_test -U postgres --no-locale
+          echo "--- Initialize TDE master key ---"
+          pg_tde_master_key init -D /tmp/fql_crash_test
           echo "tde_enabled = on" >> /tmp/fql_crash_test/postgresql.conf
           echo "--- Start server with TDE enabled ---"
           pg_ctl -D /tmp/fql_crash_test -l /tmp/fql_crash_test/server.log -o "-p 15435" start
