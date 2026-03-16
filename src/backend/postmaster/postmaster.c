@@ -123,6 +123,10 @@
 #include "utils/timestamp.h"
 #include "utils/varlena.h"
 
+#ifdef USE_PQC
+#include "crypto/pqc/pqc_common.h"
+#endif
+
 #ifdef EXEC_BACKEND
 #include "storage/pg_shmem.h"
 #endif
@@ -1324,6 +1328,15 @@ PostmasterMain(int argc, char *argv[])
 		 * to the log.
 		 */
 	}
+
+	/*
+	 * FortressQL: Run PQC preflight checks after GUCs and shared memory
+	 * are initialized.  This validates TDE master key configuration,
+	 * loads WAL signing keys on the primary, and checks oqs-provider
+	 * availability.  Must run before ServerLoop so forked backends
+	 * inherit loaded key material.
+	 */
+	pqc_preflight_check();
 
 #ifdef HAVE_PTHREAD_IS_THREADED_NP
 

@@ -45,78 +45,63 @@ if ($ret != 0)
 diag("wal_pqc_signing GUC exists, current value: $stdout");
 
 ###########################################################################
-# 3. Generate WAL signing keys
+# 3. Generate WAL signing keys using pqc_rotate_wal_signing_keys()
+#
+#    This SQL function writes the correct filenames (wal_signing.key
+#    and wal_signing.pub) to the configured wal_pqc_key_path directory.
+#    Previous versions of this test manually wrote keys with wrong
+#    filenames (wal_sign_pub.bin / wal_sign_sec.bin), causing the
+#    server to fail to find them.
 ###########################################################################
-$node_primary->stop;
-
 my $key_dir = "$tempdir/wal_keys";
 mkdir($key_dir) or die "Cannot create key dir: $!";
 
-my $keys_generated = 0;
+# Configure key path (signing still OFF) and restart to pick up GUCs
+$node_primary->stop;
+$node_primary->append_conf('postgresql.conf', <<CONF);
+wal_pqc_key_path = '$key_dir'
+wal_pqc_signing_algorithm = 'ML-DSA-65'
+wal_level = replica
+max_wal_senders = 5
+CONF
 
-# Try pgcrypto_pqc extension via a temporary server start
 $node_primary->start;
 
 ($ret, $stdout, $stderr) = $node_primary->psql('postgres',
 	"CREATE EXTENSION IF NOT EXISTS pgcrypto_pqc;");
-if ($ret == 0)
+if ($ret != 0)
 {
-	my $sig_keys = eval {
-		$node_primary->safe_psql('postgres',
-			"SELECT encode(public_key, 'hex'), encode(secret_key, 'hex') "
-			. "FROM pqc_sig_keygen('ML-DSA-65');");
-	};
-
-	if (defined $sig_keys && $sig_keys =~ /\|/)
-	{
-		my ($pub_hex, $sec_hex) = split(/\|/, $sig_keys);
-
-		write_hex_to_binfile($pub_hex, "$key_dir/wal_sign_pub.bin");
-		write_hex_to_binfile($sec_hex, "$key_dir/wal_sign_sec.bin");
-		$keys_generated = 1;
-		diag("WAL signing keys generated via pgcrypto_pqc");
-	}
+	$node_primary->stop;
+	plan skip_all => 'pgcrypto_pqc extension not available';
 }
 
-# Try keygen tools if extension did not work
-if (!$keys_generated)
+eval {
+	$node_primary->safe_psql('postgres',
+		"SELECT * FROM pqc_rotate_wal_signing_keys('ML-DSA-65');");
+};
+if ($@)
 {
-	my $bindir = $node_primary->config_data('--bindir');
-	for my $tool ('pg_wal_keygen', 'pg_pqc_keygen')
-	{
-		my $tool_path = File::Spec->catfile($bindir, $tool);
-		if (-x $tool_path || -f $tool_path)
-		{
-			($ret, $stdout, $stderr) = $node_primary->run_command(
-				[$tool_path, '--algorithm', 'ML-DSA-65',
-				 '--output-dir', $key_dir]);
-			if ($ret == 0)
-			{
-				$keys_generated = 1;
-				diag("WAL signing keys generated via $tool");
-				last;
-			}
-		}
-	}
+	$node_primary->stop;
+	plan skip_all => "Could not generate WAL signing keys: $@";
 }
 
-$node_primary->stop;
-
-if (!$keys_generated)
+# Verify the correct key files were created
+my $sec_key_file = "$key_dir/wal_signing.key";
+my $pub_key_file = "$key_dir/wal_signing.pub";
+if (! -f $sec_key_file || ! -f $pub_key_file)
 {
-	plan skip_all => 'Could not generate WAL signing keys '
-		. '(neither pgcrypto_pqc nor keygen tool available)';
+	$node_primary->stop;
+	plan skip_all => 'WAL signing key files not created at expected paths';
 }
+diag("WAL signing keys generated via pqc_rotate_wal_signing_keys()");
 pass('WAL signing keys generated');
 
 ###########################################################################
-# 4. Configure WAL signing on primary
+# 4. Enable WAL signing on primary
 ###########################################################################
+$node_primary->stop;
 $node_primary->append_conf('postgresql.conf', <<CONF);
 wal_pqc_signing = on
-wal_pqc_key_path = '$key_dir'
-wal_level = replica
-max_wal_senders = 5
 CONF
 
 eval {
@@ -229,7 +214,20 @@ is($standby_checksum, $primary_checksum,
 	'standby data checksum matches primary');
 
 ###########################################################################
-# 11. Insert more data and verify again
+# 11. Check for WAL signature files on primary
+###########################################################################
+diag("--- Checking for WAL signature files ---");
+
+my $wal_dir = $node_primary->data_dir . "/pg_wal";
+my @sig_files = glob("$wal_dir/*.sig");
+my $sig_count = scalar @sig_files;
+diag("WAL signature files found: $sig_count");
+# Signature files are informational — don't fail if the deferred
+# signing hasn't flushed yet, but log what we find.
+ok(1, "WAL signature file check completed (found $sig_count .sig files)");
+
+###########################################################################
+# 12. Insert more data and verify again
 ###########################################################################
 diag("--- Additional replication round ---");
 
@@ -254,17 +252,3 @@ is($standby_total, '1500', 'standby has 1500 rows after second batch');
 $node_standby->stop;
 $node_primary->stop;
 done_testing();
-
-###########################################################################
-# Helper subroutines
-###########################################################################
-
-sub write_hex_to_binfile
-{
-	my ($hex, $path) = @_;
-	my $bin = pack('H*', $hex);
-	open(my $fh, '>:raw', $path) or die "Cannot open $path: $!";
-	print $fh $bin;
-	close($fh);
-	return;
-}

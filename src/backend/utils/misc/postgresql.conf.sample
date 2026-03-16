@@ -912,6 +912,22 @@
 					# ML-KEM-1024 (Level 5)
 					# (change requires restart)
 
+# TDE Key Provider
+#tde_key_provider = 'env'		# source for ML-KEM secret key:
+					#   'env'     - FORTRESSQL_KEM_SECRET_KEY env var (default)
+					#   'file'    - read hex key from tde_key_file
+					#   'command' - execute tde_key_command, read from stdout
+					# (change requires restart)
+#tde_key_file = ''			# path to file containing hex-encoded ML-KEM
+					# secret key (used when tde_key_provider = 'file')
+					# file should have permissions 0600
+					# (change requires restart)
+#tde_key_command = ''			# command to retrieve hex-encoded ML-KEM secret key
+					# (used when tde_key_provider = 'command')
+					# e.g. 'vault kv get -field=kem_secret_key secret/fortressql'
+					# follows ssl_passphrase_command pattern
+					# (change requires restart)
+
 
 #------------------------------------------------------------------------------
 # FORTRESSQL: HYBRID PROOF LOGGING (AUDIT)

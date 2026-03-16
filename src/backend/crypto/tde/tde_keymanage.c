@@ -35,6 +35,7 @@
 #include "crypto/pqc/pqc_kem.h"
 #include "crypto/tde/tde.h"
 #include "crypto/tde/tde_keycache.h"
+#include "crypto/tde/tde_key_provider.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
@@ -468,15 +469,13 @@ tde_unwrap_master_key(void)
 	pfree(filepath);
 
 	/*
-	 * Get the ML-KEM secret key from environment.  In production this
-	 * would come from an HSM or key management service.
+	 * Get the ML-KEM secret key via the configured key provider.
+	 * Supports environment variable (default), file, or external command.
+	 * See tde_key_provider GUC and tde_key_provider.c for details.
 	 */
-	seckey_hex = getenv("FORTRESSQL_KEM_SECRET_KEY");
-	if (seckey_hex == NULL || strlen(seckey_hex) == 0)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("TDE: FORTRESSQL_KEM_SECRET_KEY environment variable not set"),
-				 errhint("Set the ML-KEM secret key to unwrap the TDE master key.")));
+	seckey_hex = tde_key_provider_fetch();
+	/* tde_key_provider_fetch() raises ERROR on failure, so seckey_hex
+	 * is guaranteed non-NULL and non-empty here. */
 
 	/* Validate hex string has even length */
 	if (strlen(seckey_hex) % 2 != 0)

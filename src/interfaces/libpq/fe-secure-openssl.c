@@ -63,6 +63,14 @@
 #endif
 #include <openssl/x509v3.h>
 
+/* FortressQL: PQC TLS support via oqs-provider */
+#include <openssl/opensslv.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/provider.h>
+#include <openssl/err.h>
+static OSSL_PROVIDER *oqs_provider_client = NULL;
+#endif
+
 
 static int	verify_cb(int ok, X509_STORE_CTX *ctx);
 static int	openssl_verify_peer_name_matches_certificate_name(PGconn *conn,
@@ -1020,14 +1028,31 @@ initialize_SSL(PGconn *conn)
 	/*
 	 * FortressQL: Configure PQC key exchange groups for the client.
 	 *
-	 * When sslpqcmode is not "off", configure PQC hybrid groups for the TLS
-	 * key exchange. Falls back gracefully if PQC groups are not available
-	 * (e.g., older OpenSSL without oqs-provider).
+	 * When sslpqcmode is not "off", we first try to load the OpenSSL
+	 * oqs-provider (needed for PQC groups on OpenSSL 3.0-3.4), then
+	 * configure hybrid PQC groups.  Falls back gracefully to classical
+	 * groups if PQC support is not available in the client's OpenSSL.
 	 */
 	if (conn->sslpqcmode == NULL ||
 		strcmp(conn->sslpqcmode, "off") != 0)
 	{
 		const char *groups = conn->sslpqcgroups;
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+		/* Load oqs-provider if not already loaded */
+		if (oqs_provider_client == NULL)
+		{
+			oqs_provider_client = OSSL_PROVIDER_load(NULL, "oqsprovider");
+			if (oqs_provider_client == NULL)
+			{
+				/*
+				 * Not fatal — OpenSSL 3.5+ has native ML-KEM support.
+				 * Clear the error queue so it doesn't confuse later code.
+				 */
+				ERR_clear_error();
+			}
+		}
+#endif
 
 		if (groups == NULL || groups[0] == '\0')
 			groups = "X25519MLKEM768:X25519:prime256v1";

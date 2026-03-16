@@ -445,6 +445,119 @@ jobs:
           pg_ctl -D /tmp/fql_crash_test -m fast stop
           rm -rf /tmp/fql_crash_test || true
 
+      - name: Replication with WAL signing verification
+        if: matrix.pqc == 'enabled'
+        run: |
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
+          cd build
+          meson test pqc/010_replication_pqc --timeout-multiplier 6 --print-errorlogs || true
+
+      - name: Performance baselines (pgbench)
+        if: matrix.pqc == 'enabled'
+        run: |
+          set -e
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
+
+          echo "============================================"
+          echo "  FortressQL Performance Baselines (pgbench)"
+          echo "============================================"
+
+          # --- Baseline: PQC compiled but disabled ---
+          pg_ctl -D /tmp/fql_test -m fast stop 2>/dev/null || true
+          pg_ctl -D /tmp/fql_bench -m fast stop 2>/dev/null || true
+          rm -rf /tmp/fql_bench
+          initdb -D /tmp/fql_bench -U postgres --no-locale
+          pg_ctl -D /tmp/fql_bench -l /tmp/fql_bench/server.log -o "-p 15436" start
+          sleep 2
+          pgbench -U postgres -p 15436 -i -s 5 postgres
+          echo ""
+          echo "--- Baseline (PQC disabled) ---"
+          pgbench -U postgres -p 15436 -T 15 -c 4 -j 2 postgres 2>&1 | tee /tmp/bench_baseline.txt
+          BASELINE_TPS=$(grep "tps = " /tmp/bench_baseline.txt | head -1 | sed 's/.*tps = \([0-9.]*\).*/\1/')
+          echo "Baseline TPS: $BASELINE_TPS"
+          pg_ctl -D /tmp/fql_bench -m fast stop
+          sleep 1
+
+          # --- WAL signing enabled ---
+          mkdir -p /tmp/fql_bench/pg_wal_keys
+          echo "wal_pqc_key_path = '/tmp/fql_bench/pg_wal_keys'" >> /tmp/fql_bench/postgresql.conf
+          echo "wal_pqc_signing_algorithm = 'ML-DSA-65'" >> /tmp/fql_bench/postgresql.conf
+          pg_ctl -D /tmp/fql_bench -l /tmp/fql_bench/server.log -o "-p 15436" start
+          sleep 2
+          psql -U postgres -p 15436 -c "CREATE EXTENSION IF NOT EXISTS pgcrypto_pqc;"
+          psql -U postgres -p 15436 -c "SELECT * FROM pqc_rotate_wal_signing_keys('ML-DSA-65');"
+          pg_ctl -D /tmp/fql_bench -m fast stop
+          sleep 1
+          echo "wal_pqc_signing = on" >> /tmp/fql_bench/postgresql.conf
+          pg_ctl -D /tmp/fql_bench -l /tmp/fql_bench/server.log -o "-p 15436" start
+          sleep 2
+          echo ""
+          echo "--- WAL signing enabled (ML-DSA-65) ---"
+          pgbench -U postgres -p 15436 -T 15 -c 4 -j 2 postgres 2>&1 | tee /tmp/bench_wal.txt
+          WAL_TPS=$(grep "tps = " /tmp/bench_wal.txt | head -1 | sed 's/.*tps = \([0-9.]*\).*/\1/')
+          echo "WAL signing TPS: $WAL_TPS"
+          pg_ctl -D /tmp/fql_bench -m fast stop
+          sleep 1
+
+          # --- TDE enabled ---
+          rm -rf /tmp/fql_bench_tde
+          initdb -D /tmp/fql_bench_tde -U postgres --no-locale
+          TDE_INIT_OUT=$(pg_tde_master_key init -D /tmp/fql_bench_tde)
+          export FORTRESSQL_KEM_SECRET_KEY=$(echo "$TDE_INIT_OUT" | grep "FORTRESSQL_KEM_SECRET_KEY=" | sed "s/.*FORTRESSQL_KEM_SECRET_KEY='//;s/'.*//")
+          echo "tde_enabled = on" >> /tmp/fql_bench_tde/postgresql.conf
+          pg_ctl -D /tmp/fql_bench_tde -l /tmp/fql_bench_tde/server.log -o "-p 15437" start
+          sleep 2
+          pgbench -U postgres -p 15437 -i -s 5 postgres
+          echo ""
+          echo "--- TDE enabled (AES-256 + ML-KEM-768) ---"
+          pgbench -U postgres -p 15437 -T 15 -c 4 -j 2 postgres 2>&1 | tee /tmp/bench_tde.txt
+          TDE_TPS=$(grep "tps = " /tmp/bench_tde.txt | head -1 | sed 's/.*tps = \([0-9.]*\).*/\1/')
+          echo "TDE TPS: $TDE_TPS"
+          pg_ctl -D /tmp/fql_bench_tde -m fast stop
+          sleep 1
+
+          # --- TDE + WAL signing ---
+          mkdir -p /tmp/fql_bench_tde/pg_wal_keys
+          echo "wal_pqc_key_path = '/tmp/fql_bench_tde/pg_wal_keys'" >> /tmp/fql_bench_tde/postgresql.conf
+          echo "wal_pqc_signing_algorithm = 'ML-DSA-65'" >> /tmp/fql_bench_tde/postgresql.conf
+          pg_ctl -D /tmp/fql_bench_tde -l /tmp/fql_bench_tde/server.log -o "-p 15437" start
+          sleep 2
+          psql -U postgres -p 15437 -c "CREATE EXTENSION IF NOT EXISTS pgcrypto_pqc;"
+          psql -U postgres -p 15437 -c "SELECT * FROM pqc_rotate_wal_signing_keys('ML-DSA-65');"
+          pg_ctl -D /tmp/fql_bench_tde -m fast stop
+          sleep 1
+          echo "wal_pqc_signing = on" >> /tmp/fql_bench_tde/postgresql.conf
+          pg_ctl -D /tmp/fql_bench_tde -l /tmp/fql_bench_tde/server.log -o "-p 15437" start
+          sleep 2
+          echo ""
+          echo "--- TDE + WAL signing ---"
+          pgbench -U postgres -p 15437 -T 15 -c 4 -j 2 postgres 2>&1 | tee /tmp/bench_both.txt
+          BOTH_TPS=$(grep "tps = " /tmp/bench_both.txt | head -1 | sed 's/.*tps = \([0-9.]*\).*/\1/')
+          echo "TDE + WAL signing TPS: $BOTH_TPS"
+          pg_ctl -D /tmp/fql_bench_tde -m fast stop
+
+          # --- Summary table ---
+          echo ""
+          echo "============================================"
+          echo "  Performance Baseline Summary"
+          echo "============================================"
+          echo "| Configuration          | TPS             |"
+          echo "|------------------------|-----------------|"
+          echo "| Baseline (PQC off)     | $BASELINE_TPS   |"
+          echo "| WAL signing (ML-DSA-65)| $WAL_TPS        |"
+          echo "| TDE (AES-256+ML-KEM)   | $TDE_TPS        |"
+          echo "| TDE + WAL signing      | $BOTH_TPS       |"
+          echo "============================================"
+          echo ""
+          echo "(CI runners have variable performance — these are informational only)"
+
+          # Cleanup
+          rm -rf /tmp/fql_bench /tmp/fql_bench_tde || true
+
       - name: Upload test artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4

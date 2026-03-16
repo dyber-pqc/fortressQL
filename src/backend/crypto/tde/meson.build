@@ -4,6 +4,7 @@
 if liboqs.found()
   backend_sources += files(
     'tde_keycache.c',
+    'tde_key_provider.c',
     'tde_keymanage.c',
     'tde_page.c',
     'tde_wal.c',

@@ -88,6 +88,31 @@ pqc_preflight_check(void)
 			if (stat(keypath, &st) != 0)
 				ereport(WARNING,
 						(errmsg("WAL PQC signing enabled but public key file not found: %s", keypath)));
+			else
+			{
+				/*
+				 * Both key files exist — load them now so that WAL
+				 * signing works on the primary without requiring a
+				 * manual SQL call.  Use PG_TRY so a load failure is
+				 * reported as WARNING, not FATAL.  Forked backends
+				 * (including the WAL writer) inherit loaded keys via
+				 * fork(), same as walreceiver on the standby.
+				 */
+				PG_TRY();
+				{
+					pqc_wal_load_signing_keys();
+					elog(LOG, "FortressQL: WAL signing keys loaded at startup");
+				}
+				PG_CATCH();
+				{
+					FlushErrorState();
+					ereport(WARNING,
+							(errmsg("WAL PQC signing enabled but could not load signing keys"),
+							 errhint("Check key files in \"%s\" and verify they are valid.",
+									 wal_pqc_key_path)));
+				}
+				PG_END_TRY();
+			}
 		}
 	}
 

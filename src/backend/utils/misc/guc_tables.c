@@ -93,6 +93,7 @@
 #ifdef USE_PQC
 #include "crypto/pqc/pqc_wal_keys.h"
 #include "crypto/tde/tde.h"
+#include "crypto/tde/tde_key_provider.h"
 #endif
 
 /* This value is normally passed in from the Makefile */
@@ -449,6 +450,14 @@ static const struct config_enum_entry ssl_pqc_mode_options[] = {
 	{"off", PQC_TLS_OFF, false},
 	{"hybrid", PQC_TLS_HYBRID, false},
 	{"pqc-only", PQC_TLS_PQC_ONLY, false},
+	{NULL, 0, false}
+};
+
+/* FortressQL: TDE key provider options */
+static const struct config_enum_entry tde_key_provider_options[] = {
+	{"env", 0, false},			/* TDE_KEY_PROVIDER_ENV */
+	{"file", 1, false},		/* TDE_KEY_PROVIDER_FILE */
+	{"command", 2, false},		/* TDE_KEY_PROVIDER_COMMAND */
 	{NULL, 0, false}
 };
 
@@ -4754,6 +4763,32 @@ struct config_string ConfigureNamesString[] =
 	},
 #endif							/* USE_PQC */
 
+#ifdef USE_PQC
+	/* FortressQL: TDE key provider configuration */
+	{
+		{"tde_key_file", PGC_POSTMASTER, WAL_SETTINGS,
+			gettext_noop("Path to a file containing the hex-encoded ML-KEM secret key for TDE."),
+			gettext_noop("Used when tde_key_provider = 'file'. File should have mode 0600."),
+			GUC_SUPERUSER_ONLY
+		},
+		&tde_key_file,
+		"",
+		NULL, NULL, NULL
+	},
+
+	{
+		{"tde_key_command", PGC_POSTMASTER, WAL_SETTINGS,
+			gettext_noop("Command to execute to retrieve the hex-encoded ML-KEM secret key for TDE."),
+			gettext_noop("Used when tde_key_provider = 'command'. The command should output "
+						 "the hex-encoded key on stdout. Follows the ssl_passphrase_command pattern."),
+			GUC_SUPERUSER_ONLY
+		},
+		&tde_key_command,
+		"",
+		NULL, NULL, NULL
+	},
+#endif							/* USE_PQC */
+
 	{
 		{"application_name", PGC_USERSET, LOGGING_WHAT,
 			gettext_noop("Sets the application name to be reported in statistics and logs."),
@@ -5261,6 +5296,21 @@ struct config_enum ConfigureNamesEnum[] =
 	},
 
 #ifdef USE_PQC
+	/* FortressQL: TDE key provider */
+	{
+		{"tde_key_provider", PGC_POSTMASTER, WAL_SETTINGS,
+			gettext_noop("Selects the source for the TDE ML-KEM secret key."),
+			gettext_noop("\"env\" reads from FORTRESSQL_KEM_SECRET_KEY environment variable, "
+						 "\"file\" reads from tde_key_file, "
+						 "\"command\" executes tde_key_command and reads from stdout."),
+			GUC_SUPERUSER_ONLY
+		},
+		&tde_key_provider,
+		0,		/* TDE_KEY_PROVIDER_ENV */
+		tde_key_provider_options,
+		NULL, NULL, NULL
+	},
+#endif
 	/* FortressQL: Crypto Agility Engine policy */
 	{
 		{"crypto_policy", PGC_SIGHUP, CONN_AUTH_SSL,
