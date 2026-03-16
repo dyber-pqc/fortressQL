@@ -259,16 +259,40 @@ jobs:
           echo "--- Initialize fresh data directory ---"
           initdb -D /tmp/fql_wal_test -U postgres --no-locale
 
-          echo "--- Initialize TDE/WAL master key ---"
-          WAL_INIT_OUTPUT=$(pg_tde_master_key init -D /tmp/fql_wal_test)
-          echo "$WAL_INIT_OUTPUT"
-          export FORTRESSQL_KEM_SECRET_KEY=$(echo "$WAL_INIT_OUTPUT" | grep "FORTRESSQL_KEM_SECRET_KEY=" | sed "s/.*FORTRESSQL_KEM_SECRET_KEY='//;s/'.*//")
-          echo "Key captured (length: ${#FORTRESSQL_KEM_SECRET_KEY})"
-          echo "--- Enable WAL signing in postgresql.conf ---"
-          echo "wal_pqc_signing = on" >> /tmp/fql_wal_test/postgresql.conf
+          echo "--- Create WAL signing key directory ---"
+          mkdir -p /tmp/fql_wal_test/pg_wal_keys
+
+          echo "--- Configure wal_pqc_key_path (signing OFF for now) ---"
+          echo "wal_pqc_key_path = '/tmp/fql_wal_test/pg_wal_keys'" >> /tmp/fql_wal_test/postgresql.conf
           echo "wal_pqc_signing_algorithm = 'ML-DSA-65'" >> /tmp/fql_wal_test/postgresql.conf
 
-          echo "--- Start server on port 15434 ---"
+          echo "--- Start server to generate signing keys ---"
+          pg_ctl -D /tmp/fql_wal_test -l /tmp/fql_wal_test/server.log -o "-p 15434" start || {
+            echo "=== SERVER FAILED TO START - LOG OUTPUT ==="
+            cat /tmp/fql_wal_test/server.log
+            exit 1
+          }
+          sleep 2
+
+          echo "--- Generate WAL signing keys via SQL ---"
+          psql -U postgres -p 15434 -c "CREATE EXTENSION pgcrypto_pqc;"
+          psql -U postgres -p 15434 -c "SELECT * FROM pqc_rotate_wal_signing_keys('ML-DSA-65');"
+
+          echo "--- Verify key files exist ---"
+          ls -la /tmp/fql_wal_test/pg_wal_keys/
+          if [ ! -f /tmp/fql_wal_test/pg_wal_keys/wal_signing.key ]; then
+            echo "FAIL: WAL signing secret key not generated"
+            exit 1
+          fi
+
+          echo "--- Stop server to enable WAL signing ---"
+          pg_ctl -D /tmp/fql_wal_test -m fast stop
+          sleep 1
+
+          echo "--- Enable wal_pqc_signing in postgresql.conf ---"
+          echo "wal_pqc_signing = on" >> /tmp/fql_wal_test/postgresql.conf
+
+          echo "--- Restart server with WAL signing enabled ---"
           pg_ctl -D /tmp/fql_wal_test -l /tmp/fql_wal_test/server.log -o "-p 15434" start || {
             echo "=== SERVER FAILED TO START - LOG OUTPUT ==="
             cat /tmp/fql_wal_test/server.log
@@ -284,7 +308,11 @@ jobs:
           "
 
           echo "--- Force WAL switch ---"
-          psql -U postgres -p 15434 -c "SELECT pg_switch_wal();"
+          psql -U postgres -p 15434 -c "SELECT pg_switch_wal();" || {
+            echo "=== pg_switch_wal FAILED - SERVER LOG ==="
+            cat /tmp/fql_wal_test/server.log
+            exit 1
+          }
 
           echo "--- Verify WAL files exist ---"
           ls -la /tmp/fql_wal_test/pg_wal/
@@ -295,12 +323,20 @@ jobs:
             exit 1
           fi
 
+          echo "--- Check for .sig files ---"
+          SIG_COUNT=$(ls /tmp/fql_wal_test/pg_wal/*.sig 2>/dev/null | wc -l || echo 0)
+          echo "Signature files found: $SIG_COUNT"
+
           echo "--- Stop server cleanly ---"
           pg_ctl -D /tmp/fql_wal_test -m fast stop
           sleep 1
 
           echo "--- Restart server (WAL replay happens here) ---"
-          pg_ctl -D /tmp/fql_wal_test -l /tmp/fql_wal_test/server.log -o "-p 15434" start
+          pg_ctl -D /tmp/fql_wal_test -l /tmp/fql_wal_test/server.log -o "-p 15434" start || {
+            echo "=== SERVER FAILED TO RESTART - LOG OUTPUT ==="
+            cat /tmp/fql_wal_test/server.log
+            exit 1
+          }
           sleep 2
 
           echo "--- Verify data survived WAL replay ---"
@@ -308,6 +344,7 @@ jobs:
           echo "Row count after WAL replay: $ROW_COUNT"
           if [ "$ROW_COUNT" -ne 100 ]; then
             echo "FAIL: Expected 100 rows, got $ROW_COUNT"
+            cat /tmp/fql_wal_test/server.log
             exit 1
           fi
           echo "PASS: WAL signing end-to-end test succeeded"
