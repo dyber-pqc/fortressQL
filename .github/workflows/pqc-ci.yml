@@ -181,6 +181,46 @@ jobs:
             ORDER BY proname;"
           pg_ctl -D /tmp/fql_test -m fast stop
 
+      - name: TDE end-to-end test
+        if: matrix.pqc == 'enabled'
+        run: |
+          set -e
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
+          pg_ctl -D /tmp/fql_test -m fast stop 2>/dev/null || true
+          pg_ctl -D /tmp/fql_tde_test -m fast stop 2>/dev/null || true
+          rm -rf /tmp/fql_tde_test
+          echo "--- Initialize fresh TDE data directory ---"
+          initdb -D /tmp/fql_tde_test -U postgres --no-locale
+          echo "tde_enabled = on" >> /tmp/fql_tde_test/postgresql.conf
+          echo "--- Start server with TDE enabled ---"
+          pg_ctl -D /tmp/fql_tde_test -l /tmp/fql_tde_test/server.log -o "-p 15433" start
+          sleep 2
+          echo "--- Create test database ---"
+          psql -U postgres -p 15433 -c "CREATE DATABASE tde_e2e_test;"
+          echo "--- Create table and insert data ---"
+          psql -U postgres -p 15433 -d tde_e2e_test -c "
+            CREATE TABLE tde_test (id serial, secret text);
+            INSERT INTO tde_test (secret) VALUES ('quantum-safe-secret-1'), ('quantum-safe-secret-2'), ('quantum-safe-secret-3');"
+          echo "--- Verify data reads back (expect 3) ---"
+          COUNT=$(psql -U postgres -p 15433 -d tde_e2e_test -t -A -c "SELECT count(*) FROM tde_test;")
+          echo "Row count: $COUNT"
+          [ "$COUNT" -eq 3 ] || { echo "FAIL: expected 3 rows, got $COUNT"; exit 1; }
+          echo "--- Stop server ---"
+          pg_ctl -D /tmp/fql_tde_test -m fast stop
+          sleep 1
+          echo "--- Restart server ---"
+          pg_ctl -D /tmp/fql_tde_test -l /tmp/fql_tde_test/server.log -o "-p 15433" start
+          sleep 2
+          echo "--- Verify data survives restart ---"
+          SECRET=$(psql -U postgres -p 15433 -d tde_e2e_test -t -A -c "SELECT secret FROM tde_test WHERE id = 1;")
+          echo "Secret value: $SECRET"
+          [ "$SECRET" = "quantum-safe-secret-1" ] || { echo "FAIL: expected 'quantum-safe-secret-1', got '$SECRET'"; exit 1; }
+          echo "--- TDE end-to-end test PASSED ---"
+          pg_ctl -D /tmp/fql_tde_test -m fast stop
+          rm -rf /tmp/fql_tde_test || true
+
       - name: WAL signing smoke test
         if: matrix.pqc == 'enabled'
         run: |
@@ -195,6 +235,68 @@ jobs:
           echo "--- Verify wal_pqc_signing_algorithm GUC exists ---"
           psql -U postgres -p 15432 -c "SHOW wal_pqc_signing_algorithm;"
           pg_ctl -D /tmp/fql_test -m fast stop
+
+      - name: WAL signing end-to-end test
+        if: matrix.pqc == 'enabled'
+        run: |
+          set -e
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
+          pg_ctl -D /tmp/fql_test -m fast stop 2>/dev/null || true
+          pg_ctl -D /tmp/fql_wal_test -m fast stop 2>/dev/null || true
+          rm -rf /tmp/fql_wal_test
+
+          echo "--- Initialize fresh data directory ---"
+          initdb -D /tmp/fql_wal_test -U postgres --no-locale
+
+          echo "--- Enable WAL signing in postgresql.conf ---"
+          echo "wal_pqc_signing = on" >> /tmp/fql_wal_test/postgresql.conf
+          echo "wal_pqc_signing_algorithm = 'ML-DSA-65'" >> /tmp/fql_wal_test/postgresql.conf
+
+          echo "--- Start server on port 15434 ---"
+          pg_ctl -D /tmp/fql_wal_test -l /tmp/fql_wal_test/server.log -o "-p 15434" start
+          sleep 2
+
+          echo "--- Create test database and generate WAL ---"
+          psql -U postgres -p 15434 -c "CREATE DATABASE wal_test;"
+          psql -U postgres -p 15434 -d wal_test -c "
+            CREATE TABLE wal_data (id serial, payload text);
+            INSERT INTO wal_data (payload) SELECT 'wal-test-row-' || g FROM generate_series(1, 100) g;
+          "
+
+          echo "--- Force WAL switch ---"
+          psql -U postgres -p 15434 -c "SELECT pg_switch_wal();"
+
+          echo "--- Verify WAL files exist ---"
+          ls -la /tmp/fql_wal_test/pg_wal/
+          WAL_COUNT=$(ls /tmp/fql_wal_test/pg_wal/ | grep -c '^[0-9A-F]' || true)
+          echo "WAL files found: $WAL_COUNT"
+          if [ "$WAL_COUNT" -lt 1 ]; then
+            echo "FAIL: No WAL files found"
+            exit 1
+          fi
+
+          echo "--- Stop server cleanly ---"
+          pg_ctl -D /tmp/fql_wal_test -m fast stop
+          sleep 1
+
+          echo "--- Restart server (WAL replay happens here) ---"
+          pg_ctl -D /tmp/fql_wal_test -l /tmp/fql_wal_test/server.log -o "-p 15434" start
+          sleep 2
+
+          echo "--- Verify data survived WAL replay ---"
+          ROW_COUNT=$(psql -U postgres -p 15434 -d wal_test -t -A -c "SELECT count(*) FROM wal_data;")
+          echo "Row count after WAL replay: $ROW_COUNT"
+          if [ "$ROW_COUNT" -ne 100 ]; then
+            echo "FAIL: Expected 100 rows, got $ROW_COUNT"
+            exit 1
+          fi
+          echo "PASS: WAL signing end-to-end test succeeded"
+
+          echo "--- Cleanup ---"
+          pg_ctl -D /tmp/fql_wal_test -m fast stop || true
+          rm -rf /tmp/fql_wal_test || true
 
       - name: PQC performance benchmark
         if: matrix.pqc == 'enabled'
@@ -235,6 +337,49 @@ jobs:
               END IF;
             END \$\$;"
           pg_ctl -D /tmp/fql_test -m fast stop
+
+      - name: Crash recovery test (TDE)
+        if: matrix.pqc == 'enabled'
+        run: |
+          set -e
+          export PATH="/usr/local/fortressql/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="/usr/local/fortressql/lib:/usr/local/lib:$DYLD_LIBRARY_PATH"
+          pg_ctl -D /tmp/fql_test -m fast stop 2>/dev/null || true
+          pg_ctl -D /tmp/fql_crash_test -m fast stop 2>/dev/null || true
+          rm -rf /tmp/fql_crash_test || true
+          echo "--- Initialize fresh crash recovery data directory ---"
+          initdb -D /tmp/fql_crash_test -U postgres --no-locale
+          echo "tde_enabled = on" >> /tmp/fql_crash_test/postgresql.conf
+          echo "--- Start server with TDE enabled ---"
+          pg_ctl -D /tmp/fql_crash_test -l /tmp/fql_crash_test/server.log -o "-p 15435" start
+          sleep 2
+          echo "--- Create database and table, insert 500 rows ---"
+          psql -U postgres -p 15435 -c "CREATE DATABASE crash_test;"
+          psql -U postgres -p 15435 -d crash_test -c "
+            CREATE TABLE important_data (id serial, value text);
+            INSERT INTO important_data (value) SELECT 'critical-row-' || g FROM generate_series(1, 500) g;"
+          echo "--- Force checkpoint ---"
+          psql -U postgres -p 15435 -d crash_test -c "CHECKPOINT;"
+          echo "--- Insert 100 more rows after checkpoint ---"
+          psql -U postgres -p 15435 -d crash_test -c "
+            INSERT INTO important_data (value) SELECT 'post-checkpoint-' || g FROM generate_series(1, 100) g;"
+          echo "--- Simulate crash with immediate stop (like kill -9) ---"
+          pg_ctl -D /tmp/fql_crash_test stop -m immediate
+          echo "--- Restart server (crash recovery happens here) ---"
+          pg_ctl -D /tmp/fql_crash_test -l /tmp/fql_crash_test/server.log -o "-p 15435" start
+          sleep 3
+          echo "--- Verify ALL data survived crash recovery (expect 600) ---"
+          COUNT=$(psql -U postgres -p 15435 -d crash_test -t -A -c "SELECT count(*) FROM important_data;")
+          echo "Row count: $COUNT"
+          [ "$COUNT" -eq 600 ] || { echo "FAIL: expected 600 rows, got $COUNT"; exit 1; }
+          echo "--- Verify specific row ---"
+          VALUE=$(psql -U postgres -p 15435 -d crash_test -t -A -c "SELECT value FROM important_data WHERE id = 1;")
+          echo "Row 1 value: $VALUE"
+          [ "$VALUE" = "critical-row-1" ] || { echo "FAIL: expected 'critical-row-1', got '$VALUE'"; exit 1; }
+          echo "--- Crash recovery test (TDE) PASSED ---"
+          pg_ctl -D /tmp/fql_crash_test -m fast stop
+          rm -rf /tmp/fql_crash_test || true
 
       - name: Upload test artifacts on failure
         if: failure()
