@@ -194,7 +194,10 @@ jobs:
           echo "--- Initialize fresh TDE data directory ---"
           initdb -D /tmp/fql_tde_test -U postgres --no-locale
           echo "--- Initialize TDE master key ---"
-          pg_tde_master_key init -D /tmp/fql_tde_test
+          TDE_INIT_OUTPUT=$(pg_tde_master_key init -D /tmp/fql_tde_test)
+          echo "$TDE_INIT_OUTPUT"
+          export FORTRESSQL_KEM_SECRET_KEY=$(echo "$TDE_INIT_OUTPUT" | grep "FORTRESSQL_KEM_SECRET_KEY=" | sed "s/.*FORTRESSQL_KEM_SECRET_KEY='//;s/'.*//")
+          echo "Key captured (length: ${#FORTRESSQL_KEM_SECRET_KEY})"
           echo "tde_enabled = on" >> /tmp/fql_tde_test/postgresql.conf
           echo "--- Start server with TDE enabled ---"
           pg_ctl -D /tmp/fql_tde_test -l /tmp/fql_tde_test/server.log -o "-p 15433" start
@@ -253,7 +256,10 @@ jobs:
           initdb -D /tmp/fql_wal_test -U postgres --no-locale
 
           echo "--- Initialize TDE/WAL master key ---"
-          pg_tde_master_key init -D /tmp/fql_wal_test
+          WAL_INIT_OUTPUT=$(pg_tde_master_key init -D /tmp/fql_wal_test)
+          echo "$WAL_INIT_OUTPUT"
+          export FORTRESSQL_KEM_SECRET_KEY=$(echo "$WAL_INIT_OUTPUT" | grep "FORTRESSQL_KEM_SECRET_KEY=" | sed "s/.*FORTRESSQL_KEM_SECRET_KEY='//;s/'.*//")
+          echo "Key captured (length: ${#FORTRESSQL_KEM_SECRET_KEY})"
           echo "--- Enable WAL signing in postgresql.conf ---"
           echo "wal_pqc_signing = on" >> /tmp/fql_wal_test/postgresql.conf
           echo "wal_pqc_signing_algorithm = 'ML-DSA-65'" >> /tmp/fql_wal_test/postgresql.conf
@@ -355,7 +361,10 @@ jobs:
           echo "--- Initialize fresh crash recovery data directory ---"
           initdb -D /tmp/fql_crash_test -U postgres --no-locale
           echo "--- Initialize TDE master key ---"
-          pg_tde_master_key init -D /tmp/fql_crash_test
+          CRASH_INIT_OUTPUT=$(pg_tde_master_key init -D /tmp/fql_crash_test)
+          echo "$CRASH_INIT_OUTPUT"
+          export FORTRESSQL_KEM_SECRET_KEY=$(echo "$CRASH_INIT_OUTPUT" | grep "FORTRESSQL_KEM_SECRET_KEY=" | sed "s/.*FORTRESSQL_KEM_SECRET_KEY='//;s/'.*//")
+          echo "Key captured (length: ${#FORTRESSQL_KEM_SECRET_KEY})"
           echo "tde_enabled = on" >> /tmp/fql_crash_test/postgresql.conf
           echo "--- Start server with TDE enabled ---"
           pg_ctl -D /tmp/fql_crash_test -l /tmp/fql_crash_test/server.log -o "-p 15435" start
