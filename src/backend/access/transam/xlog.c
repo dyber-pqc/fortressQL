@@ -108,6 +108,8 @@
 
 #ifdef USE_PQC
 #include "crypto/pqc/pqc_wal_keys.h"
+#include "common/cryptohash.h"
+#include "common/sha2.h"
 #endif
 
 extern uint32 bootstrap_data_checksum_version;
@@ -2336,30 +2338,24 @@ XLogPqcSignSegment(XLogSegNo segno, TimeLineID tli)
 	char		sigpath[MAXPGPATH];
 	FILE	   *seg_fp;
 	FILE	   *sig_fp;
-	struct stat seg_stat;
-	uint8	   *seg_data;
-	size_t		seg_len;
 	uint8	   *sig_buf;
 	size_t		sig_len;
 	size_t		max_sig_len;
 	int			rc;
+	pg_cryptohash_ctx *hash_ctx;
+	uint8		hash[PG_SHA256_DIGEST_LENGTH];
+	uint8		read_buf[8192];
+	size_t		nread;
 
 	/* Build segment file path */
 	XLogFilePath(segpath, tli, segno, wal_segment_size);
 
-	/* Read the entire segment */
-	if (stat(segpath, &seg_stat) != 0)
-	{
-		ereport(WARNING,
-				(errcode_for_file_access(),
-				 errmsg("PQC WAL sign: could not stat segment \"%s\": %m",
-						segpath)));
-		return;
-	}
-
-	seg_len = (size_t) seg_stat.st_size;
-	seg_data = (uint8 *) palloc(seg_len);
-
+	/*
+	 * Hash-then-sign: compute SHA-256 of the WAL segment by reading it
+	 * in chunks, then sign the 32-byte hash.  This avoids passing 16MB
+	 * directly to the OQS signing function, which can cause crashes
+	 * under concurrent load.
+	 */
 	seg_fp = AllocateFile(segpath, "rb");
 	if (seg_fp == NULL)
 	{
@@ -2367,21 +2363,51 @@ XLogPqcSignSegment(XLogSegNo segno, TimeLineID tli)
 				(errcode_for_file_access(),
 				 errmsg("PQC WAL sign: could not open segment \"%s\": %m",
 						segpath)));
-		pfree(seg_data);
 		return;
 	}
 
-	if (fread(seg_data, 1, seg_len, seg_fp) != seg_len)
+	hash_ctx = pg_cryptohash_create(PG_SHA256);
+	if (hash_ctx == NULL)
 	{
 		ereport(WARNING,
-				(errcode_for_file_access(),
-				 errmsg("PQC WAL sign: could not read segment \"%s\": %m",
-						segpath)));
+				(errmsg("PQC WAL sign: could not create SHA-256 context")));
 		FreeFile(seg_fp);
-		pfree(seg_data);
 		return;
 	}
+
+	if (pg_cryptohash_init(hash_ctx) < 0)
+	{
+		ereport(WARNING,
+				(errmsg("PQC WAL sign: SHA-256 init failed: %s",
+						pg_cryptohash_error(hash_ctx))));
+		pg_cryptohash_free(hash_ctx);
+		FreeFile(seg_fp);
+		return;
+	}
+
+	while ((nread = fread(read_buf, 1, sizeof(read_buf), seg_fp)) > 0)
+	{
+		if (pg_cryptohash_update(hash_ctx, read_buf, nread) < 0)
+		{
+			ereport(WARNING,
+					(errmsg("PQC WAL sign: SHA-256 update failed: %s",
+							pg_cryptohash_error(hash_ctx))));
+			pg_cryptohash_free(hash_ctx);
+			FreeFile(seg_fp);
+			return;
+		}
+	}
 	FreeFile(seg_fp);
+
+	if (pg_cryptohash_final(hash_ctx, hash, sizeof(hash)) < 0)
+	{
+		ereport(WARNING,
+				(errmsg("PQC WAL sign: SHA-256 finalize failed: %s",
+						pg_cryptohash_error(hash_ctx))));
+		pg_cryptohash_free(hash_ctx);
+		return;
+	}
+	pg_cryptohash_free(hash_ctx);
 
 	/* Allocate buffer for signature */
 	max_sig_len = pqc_sig_max_signature_len(PQC_ALG_ML_DSA_65);
@@ -2389,9 +2415,8 @@ XLogPqcSignSegment(XLogSegNo segno, TimeLineID tli)
 		max_sig_len = 8192;		/* generous fallback */
 	sig_buf = (uint8 *) palloc(max_sig_len);
 
-	/* Sign the segment data */
-	rc = pqc_wal_sign_data(seg_data, seg_len, sig_buf, max_sig_len, &sig_len);
-	pfree(seg_data);
+	/* Sign the SHA-256 hash (32 bytes) instead of the full segment */
+	rc = pqc_wal_sign_data(hash, sizeof(hash), sig_buf, max_sig_len, &sig_len);
 
 	if (rc != 0)
 	{

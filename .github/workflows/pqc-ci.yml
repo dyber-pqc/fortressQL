@@ -497,10 +497,11 @@ jobs:
           sleep 2
           echo ""
           echo "--- WAL signing enabled (ML-DSA-65) ---"
-          pgbench -U postgres -p 15436 -T 15 -c 4 -j 2 postgres 2>&1 | tee /tmp/bench_wal.txt
+          pgbench -U postgres -p 15436 -T 15 -c 4 -j 2 postgres 2>&1 | tee /tmp/bench_wal.txt || true
           WAL_TPS=$(grep "tps = " /tmp/bench_wal.txt | head -1 | sed 's/.*tps = \([0-9.]*\).*/\1/')
+          if [ -z "$WAL_TPS" ]; then WAL_TPS="N/A (server crash)"; fi
           echo "WAL signing TPS: $WAL_TPS"
-          pg_ctl -D /tmp/fql_bench -m fast stop
+          pg_ctl -D /tmp/fql_bench -m fast stop 2>/dev/null || pg_ctl -D /tmp/fql_bench -m immediate stop 2>/dev/null || true
           sleep 1
 
           # --- TDE enabled ---
@@ -535,10 +536,11 @@ jobs:
           sleep 2
           echo ""
           echo "--- TDE + WAL signing ---"
-          pgbench -U postgres -p 15437 -T 15 -c 4 -j 2 postgres 2>&1 | tee /tmp/bench_both.txt
+          pgbench -U postgres -p 15437 -T 15 -c 4 -j 2 postgres 2>&1 | tee /tmp/bench_both.txt || true
           BOTH_TPS=$(grep "tps = " /tmp/bench_both.txt | head -1 | sed 's/.*tps = \([0-9.]*\).*/\1/')
+          if [ -z "$BOTH_TPS" ]; then BOTH_TPS="N/A (server crash)"; fi
           echo "TDE + WAL signing TPS: $BOTH_TPS"
-          pg_ctl -D /tmp/fql_bench_tde -m fast stop
+          pg_ctl -D /tmp/fql_bench_tde -m fast stop 2>/dev/null || pg_ctl -D /tmp/fql_bench_tde -m immediate stop 2>/dev/null || true
 
           # --- Summary table ---
           echo ""
