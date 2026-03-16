@@ -52,6 +52,9 @@
 #include "storage/spin.h"
 #include "utils/guc.h"
 #include "utils/injection_point.h"
+#ifdef USE_PQC
+#include "crypto/tde/tde.h"
+#endif
 
 /* GUCs */
 int			shared_memory_type = DEFAULT_SHARED_MEMORY_TYPE;
@@ -152,6 +155,10 @@ CalculateShmemSize(int *num_semaphores)
 	size = add_size(size, WaitEventCustomShmemSize());
 	size = add_size(size, InjectionPointShmemSize());
 	size = add_size(size, SlotSyncShmemSize());
+#ifdef USE_PQC
+	if (tde_enabled)
+		size = add_size(size, tde_keycache_shmem_size());
+#endif
 #ifdef EXEC_BACKEND
 	size = add_size(size, ShmemBackendArraySize());
 #endif
@@ -357,6 +364,20 @@ CreateOrAttachShmemStructs(void)
 	StatsShmemInit();
 	WaitEventCustomShmemInit();
 	InjectionPointShmemInit();
+
+#ifdef USE_PQC
+	/*
+	 * Initialize TDE key cache and unwrap master key if TDE is enabled.
+	 * This must happen after shared memory is set up but before any
+	 * backends try to read or write encrypted pages.
+	 */
+	if (tde_enabled)
+	{
+		tde_keycache_shmem_init();
+		if (!IsUnderPostmaster)
+			tde_unwrap_master_key();
+	}
+#endif
 }
 
 /*
