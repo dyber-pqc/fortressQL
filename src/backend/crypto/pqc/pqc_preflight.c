@@ -137,6 +137,14 @@ pqc_preflight_check(void)
 	}
 #endif
 
+	/*
+	 * Eagerly initialize the PQC subsystem here in the postmaster so the
+	 * status logged below is accurate, and so every forked backend inherits
+	 * an initialized liboqs state instead of lazily re-initializing on first
+	 * PQC use.
+	 */
+	(void) pqc_init();
+
 	/* Log PQC subsystem status */
 	elog(LOG, "FortressQL: PQC subsystem initialized (liboqs available: %s)",
 		 pqc_is_available() ? "yes" : "no");
